@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entre Defesas e Ataques — Mesa</title>
+<meta name="description" content="Mesa virtual do RPG Entre Defesas e Ataques: campo, zonas, tokens, dados e partida ao vivo.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111'/%3E%3Ccircle cx='32' cy='32' r='16' fill='none' stroke='%23fff' stroke-width='4'/%3E%3Cpath d='M32 4v56' stroke='%23fff' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ LOBBY ============ -->
+<section id="lobby" class="lobby" hidden>
+  <div class="lobby-hero">
+    <div class="kicker">Mesa virtual</div>
+    <h1>ENTRE DEFESAS<br>E ATAQUES</h1>
+    <p>O campo da sua mesa, ao vivo. Cada jogador move o seu personagem, o mestre comanda o resto.</p>
+  </div>
+  <div class="lobby-cards">
+    <form id="form-join" class="card">
+      <h2>Entrar numa sala</h2>
+      <label>Código da sala<input name="code" required maxlength="12" autocomplete="off" placeholder="EX: 4F9A2C"></label>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="role" value="player" checked><span>Jogador</span></label>
+        <label><input type="radio" name="role" value="gm"><span>Mestre</span></label>
+      </div>
+      <label data-for="player">Seu nome<input name="nick" maxlength="40" placeholder="Nome do personagem"></label>
+      <label data-for="gm" hidden>Senha do mestre<input name="pass" type="password" autocomplete="current-password"></label>
+      <button class="btn btn-dark" type="submit">Entrar</button>
+      <p class="form-msg" aria-live="polite"></p>
+    </form>
+    <form id="form-create" class="card card-dark">
+      <h2>Criar sala (mestre)</h2>
+      <label>Nome da mesa<input name="mesa" maxlength="60" placeholder="Última Maré"></label>
+      <label>Senha do mestre<input name="pass" type="password" minlength="4" required autocomplete="new-password"></label>
+      <button class="btn btn-light" type="submit">Criar sala</button>
+      <p class="form-msg" aria-live="polite"></p>
+    </form>
+  </div>
+  <p class="lobby-foot">Livro Básico 0.1 · projeto de fã, sem fins lucrativos</p>
+</section>
+
+<!-- ============ MESA ============ -->
+<section id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span><span class="brand-name">ENTRE DEFESAS E ATAQUES</span></div>
+    <div class="room-info">
+      <span id="room-name" class="room-name"></span>
+      <button id="btn-copy" class="chip" title="Copiar link da sala">Sala <b id="room-code"></b> ⧉</button>
+    </div>
+    <div class="match-pick">
+      <select id="match-select" aria-label="Partida"></select>
+    </div>
+    <div class="me">
+      <span id="me-chip" class="chip chip-dark"></span>
+      <button id="btn-leave" class="chip">Sair</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="field-wrap">
+      <div class="field-tools">
+        <label class="tg"><input type="checkbox" id="opt-zonas" checked><span>Zonas</span></label>
+        <label class="tg"><input type="checkbox" id="opt-cds"><span>CDs</span></label>
+        <label class="tg"><input type="checkbox" id="opt-nomes" checked><span>Nomes</span></label>
+        <label class="tg"><input type="checkbox" id="opt-inverter"><span>Visão do adversário</span></label>
+        <span class="spacer"></span>
+        <span id="conn" class="conn" title="Conexão">●</span>
+      </div>
+      <div class="field-box">
+        <svg id="field" viewBox="0 0 680 1050" preserveAspectRatio="xMidYMid meet" aria-label="Campo de futebol"></svg>
+      </div>
+      <div class="scorebar" id="scorebar"></div>
+    </section>
+
+    <aside class="side">
+      <nav class="tabs" id="tabs">
+        <button data-tab="partida" class="on">Partida</button>
+        <button data-tab="token">Token</button>
+        <button data-tab="dados">Dados</button>
+        <button data-tab="eu" data-player>Meu jogador</button>
+        <button data-tab="mestre" data-gm>Mestre</button>
+      </nav>
+      <div class="tab-body" id="tab-partida"></div>
+      <div class="tab-body" id="tab-token" hidden></div>
+      <div class="tab-body" id="tab-dados" hidden></div>
+      <div class="tab-body" id="tab-eu" hidden></div>
+      <div class="tab-body" id="tab-mestre" hidden></div>
+    </aside>
+  </main>
+</section>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="boot" class="boot">Carregando…</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
