@@ -183,3 +183,22 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 }
 .row > .btn { flex: none; }
 .toast { bottom: 76px; }
+
+/* ---------- cena: campo / cidade ---------- */
+.modes { display: inline-flex; border: 1.5px solid var(--ink); margin-right: 6px; }
+.modes button { border: 0; background: var(--paper); padding: 4px 12px; font-family: var(--display); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.modes button.on { background: var(--ink); color: var(--paper); }
+.tools-campo { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.tools-cidade b { font-family: var(--display); letter-spacing: .06em; font-size: 14px; }
+#city { width: 100%; height: 100%; max-height: calc(100vh - 130px); display: block; user-select: none; }
+.loc { cursor: pointer; }
+.loc:focus-visible { outline: none; }
+.loc:focus-visible circle:first-of-type { stroke: #e8b100; }
+.loc-label { font: 700 14px var(--text); fill: #111; paint-order: stroke; stroke: #f7f6f1; stroke-width: 5px; }
+.pessoa { pointer-events: none; }
+.loc-item { display: grid; gap: 2px; text-align: left; border: 0; border-left: 4px solid var(--ink); background: var(--soft); padding: 6px 8px; }
+.loc-item:hover { background: #e9e9e5; }
+.periodo { border: 1.5px solid var(--line); padding: 10px; display: grid; gap: 8px; }
+.periodo-t { font-family: var(--display); letter-spacing: .08em; text-transform: uppercase; font-size: 12px; }
+.resultado { background: #eef6ef; border-left: 4px solid var(--grass); padding: 6px 8px; font-size: 13px; }
+@media (max-width: 900px) { #city { max-height: 70vh; } }

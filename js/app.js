@@ -1,5 +1,5 @@
 import { createStore, uid } from './store.js';
-import { PERICIAS, ZONAS, FORMACOES, ESTILOS, CONDICOES, posicaoFormacao, estadoInicial, recursosIniciais } from './data.js';
+import { PERICIAS, ZONAS, FORMACOES, ESTILOS, CONDICOES, ATIVIDADES, LOCAIS, posicaoFormacao, estadoInicial, recursosIniciais } from './data.js';
 
 // ================= util =================
 const $ = s => document.querySelector(s);
@@ -49,6 +49,7 @@ const S = {
   matches: [], match: null, tokens: new Map(), players: [], rolls: [],
   secrets: {}, selected: null, lastRoll: null,
   opts: lsGet('eda-opts', { zonas: true, cds: false, nomes: true, inverter: false }),
+  mode: 'campo', periods: [], selLocal: null,
   tab: 'partida', live: null, drag: null, liveTok: new Map(), liveBall: null,
 };
 const isGM = () => S.role === 'gm';
@@ -660,6 +661,199 @@ async function addToken(team) {
   try { const [t] = await S.store.insert('tokens', row); S.tokens.set(t.id, t); S.selected = t.id; renderTokens(); setTab('token'); } catch (e) { toast(e.message); }
 }
 
+// ================= cidade (slice of life) =================
+const semanaAtual = () => S.room?.semana || 1;
+const localById = id => LOCAIS.find(l => l.id === id);
+const ativById = id => ATIVIDADES.find(a => a.id === id);
+const playerLocal = p => p.local || 'dormitorio';
+function playerPhoto(pid) {
+  for (const t of S.tokens.values()) if (t.owner === pid && t.photo) return t.photo;
+  return '';
+}
+const iniciais = n => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+
+function setMode(mode, broadcast) {
+  S.mode = mode;
+  const cidade = mode === 'cidade';
+  $('#field').toggleAttribute('hidden', cidade); $('#city').toggleAttribute('hidden', !cidade);
+  $('#mode-campo').classList.toggle('on', !cidade); $('#mode-cidade').classList.toggle('on', cidade);
+  document.querySelector('.tools-campo').hidden = cidade;
+  document.querySelector('.tools-cidade').hidden = !cidade;
+  $('#week-label').textContent = `Semana ${semanaAtual()}`;
+  $('#scorebar').hidden = cidade;
+  document.querySelectorAll('#tabs button[data-mode]').forEach(b => { b.hidden = b.dataset.mode !== mode; });
+  const cur = document.querySelector(`#tabs button[data-tab="${S.tab}"]`);
+  if (!cur || cur.hidden) setTab(cidade ? 'local' : 'partida'); else renderTab();
+  renderCity();
+  if (broadcast && isGM() && S.room && (S.room.view || 'campo') !== mode) {
+    S.room.view = mode;
+    S.store.update('rooms', S.code, { view: mode }, 'code').catch(e => toast('Não salvou: ' + e.message));
+  }
+}
+
+function drawCity() {
+  const svg = $('#city'); svg.innerHTML = '';
+  const INK = '#111';
+  const g = s('g', { id: 'terrain' });
+  g.append(s('rect', { x: 0, y: 0, width: 1000, height: 700, fill: '#f7f6f1' }));
+  // montanhas
+  g.append(s('path', { d: 'M0 210 L90 90 L170 170 L260 40 L360 160 L430 110 L500 60 L580 120 L660 50 L760 150 L840 80 L1000 200 L1000 0 L0 0 Z', fill: '#e3e8e0', stroke: INK, 'stroke-width': 2 }));
+  g.append(s('path', { d: 'M240 66 L260 40 L282 72 M640 78 L660 50 L684 86 M480 86 L500 60 L522 92', fill: 'none', stroke: INK, 'stroke-width': 2 }));
+  // lago
+  g.append(s('path', { d: 'M0 560 C120 540 230 600 360 575 C470 555 560 640 700 625 C820 612 900 660 1000 640 L1000 700 L0 700 Z', fill: '#dbe7ec', stroke: INK, 'stroke-width': 2 }));
+  for (const [x, y] of [[180, 650], [420, 640], [640, 670], [860, 680]]) g.append(s('path', { d: `M${x} ${y} q12 -6 24 0 q12 6 24 0`, fill: 'none', stroke: '#7a9aa6', 'stroke-width': 1.5 }));
+  // ferrovia
+  g.append(s('path', { d: 'M1000 300 C930 360 890 400 860 430 C830 460 820 520 830 700', fill: 'none', stroke: INK, 'stroke-width': 3 }));
+  for (let i = 0; i < 18; i++) {
+    const t = i / 17, x = 1000 - 170 * t + Math.sin(t * 3) * 10, y = 300 + 400 * t;
+    g.append(s('line', { x1: x - 7, y1: y - 3, x2: x + 7, y2: y + 3, stroke: INK, 'stroke-width': 1.5 }));
+  }
+  // ruas
+  const road = d => [s('path', { d, fill: 'none', stroke: INK, 'stroke-width': 14, 'stroke-linecap': 'round' }), s('path', { d, fill: 'none', stroke: '#fff', 'stroke-width': 10, 'stroke-linecap': 'round' })];
+  g.append(...road('M250 300 C300 400 280 470 300 520'), ...road('M300 520 C400 500 520 490 600 520 C650 500 670 470 680 450 C760 440 820 430 860 430'),
+    ...road('M680 450 C690 360 690 300 690 250'), ...road('M600 520 C720 560 800 580 860 590'), ...road('M300 520 C230 560 170 590 140 610'),
+    ...road('M300 520 C360 560 420 590 470 600'), ...road('M250 300 C350 290 430 300 500 290'), ...road('M500 290 C580 280 640 260 690 250'));
+  // escadaria do santuário
+  g.append(s('path', { d: 'M500 290 L500 190', stroke: INK, 'stroke-width': 10, 'stroke-dasharray': '3 5' }));
+  // campo do platô
+  g.append(s('rect', { x: 440, y: 120, width: 120, height: 66, fill: '#cfe1c8', stroke: INK, 'stroke-width': 2 }));
+  g.append(s('line', { x1: 500, y1: 120, x2: 500, y2: 186, stroke: INK, 'stroke-width': 1.5 }));
+  g.append(s('circle', { cx: 500, cy: 153, r: 10, fill: 'none', stroke: INK, 'stroke-width': 1.5 }));
+  // torii
+  g.append(s('path', { d: 'M482 262 h36 M486 270 h28 M488 262 v26 M512 262 v26', stroke: '#c62828', 'stroke-width': 4, fill: 'none' }));
+  // árvores
+  for (const [x, y] of [[90, 260], [120, 300], [380, 220], [610, 200], [780, 280], [930, 250], [200, 420], [420, 400], [960, 520], [80, 450], [560, 380], [760, 360]]) {
+    g.append(s('circle', { cx: x, cy: y, r: 14, fill: '#e3ecdc', stroke: INK, 'stroke-width': 1.5 }));
+  }
+  // cartela
+  g.append(s('rect', { x: 20, y: 20, width: 230, height: 54, fill: '#111' }));
+  g.append(s('text', { x: 36, y: 54, fill: '#fff', style: 'font: 700 24px var(--display); letter-spacing: .08em' }, 'USHIO MINATO'));
+  svg.append(g, s('g', { id: 'locais' }), s('g', { id: 'pessoas' }));
+  svg.addEventListener('pointerdown', e => {
+    if (e.target.closest('.loc') || e.target.closest('.pessoa')) return;
+    if (S.selLocal) { S.selLocal = null; renderCity(); if (S.tab === 'local') renderTab(); }
+  });
+}
+
+function renderCity() {
+  const gl = $('#locais'), gp = $('#pessoas');
+  if (!gl) return;
+  gl.innerHTML = ''; gp.innerHTML = '';
+  LOCAIS.forEach((l, i) => {
+    const sel = S.selLocal === l.id;
+    const m = s('g', { class: 'loc', transform: `translate(${l.x} ${l.y})`, tabindex: 0, role: 'button', 'aria-label': l.nome });
+    if (sel) m.append(s('circle', { r: 24, fill: 'none', stroke: '#e8b100', 'stroke-width': 4 }));
+    m.append(s('circle', { r: 16, fill: '#111', stroke: '#fff', 'stroke-width': 3 }));
+    m.append(s('text', { y: 6, 'text-anchor': 'middle', fill: '#fff', style: 'font: 700 16px var(--display)' }, i + 1));
+    m.append(s('text', { y: 36, 'text-anchor': 'middle', class: 'loc-label' }, l.nome));
+    const pick = () => { S.selLocal = l.id; renderCity(); setTab('local'); };
+    m.addEventListener('click', pick);
+    m.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+    gl.append(m);
+  });
+  const porLocal = {};
+  for (const p of S.players) (porLocal[playerLocal(p)] ||= []).push(p);
+  for (const [lid, ps] of Object.entries(porLocal)) {
+    const l = localById(lid); if (!l) continue;
+    ps.forEach((p, k) => {
+      const n = ps.length, ang = (-90 + (k - (n - 1) / 2) * 34) * Math.PI / 180;
+      const x = l.x + Math.cos(ang) * 40, y = l.y + Math.sin(ang) * 40;
+      const mine = p.id === S.me.id;
+      const g = s('g', { class: 'pessoa', transform: `translate(${x.toFixed(1)} ${y.toFixed(1)})` });
+      g.append(s('title', {}, p.name));
+      if (mine) g.append(s('circle', { r: 17, fill: 'none', stroke: '#e8b100', 'stroke-width': 3 }));
+      g.append(s('circle', { r: 14, fill: '#fff', stroke: '#111', 'stroke-width': 2.5 }));
+      const ph = playerPhoto(p.id);
+      if (ph) {
+        const cid = 'pc' + p.id.replace(/[^a-z0-9]/gi, '');
+        g.append(s('clipPath', { id: cid }, s('circle', { r: 12 })));
+        g.append(s('image', { href: ph, x: -12, y: -12, width: 24, height: 24, 'clip-path': `url(#${cid})`, preserveAspectRatio: 'xMidYMid slice' }));
+      } else {
+        g.append(s('text', { y: 5, 'text-anchor': 'middle', style: 'font: 700 12px var(--display)' }, iniciais(p.name)));
+      }
+      gp.append(g);
+    });
+  }
+}
+
+async function irPara(pid, lid) {
+  const p = S.players.find(x => x.id === pid); if (!p) return;
+  p.local = lid; if (S.player && S.player.id === pid) S.player.local = lid;
+  renderCity(); renderTab();
+  try { await S.store.update('players', pid, { local: lid }); } catch (e) { toast('Não salvou: ' + e.message); }
+}
+
+function renderLocal() {
+  const box = $('#tab-local');
+  const l = S.selLocal && localById(S.selLocal);
+  if (!l) {
+    put(box, h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Ushio Minato'),
+      h('p', { class: 'muted' }, 'Clique num lugar do mapa para ver o que dá para fazer lá.'),
+      h('div', { class: 'log' }, LOCAIS.map((x, i) => h('button', { class: 'loc-item', onclick: () => { S.selLocal = x.id; renderCity(); renderLocal(); } },
+        h('b', {}, `${i + 1}. ${x.nome}`), h('span', { class: 'muted' }, `${S.players.filter(p => playerLocal(p) === x.id).map(p => p.name).join(', ') || 'ninguém'}`))))));
+    return;
+  }
+  const aqui = S.players.filter(p => playerLocal(p) === l.id);
+  const sec = S.secrets || {}; sec.locais = sec.locais || {};
+  put(box,
+    h('div', { class: 'sec' },
+      h('div', { class: 'sec-t' }, l.nome, h('button', { class: 'btn btn-sm', onclick: () => { S.selLocal = null; renderCity(); renderLocal(); } }, 'Voltar')),
+      h('p', {}, l.desc),
+      h('div', { class: 'muted' }, aqui.length ? `Aqui agora: ${aqui.map(p => p.name).join(', ')}` : 'Ninguém aqui agora.'),
+      !isGM() && S.player ? h('button', { class: 'btn btn-dark', disabled: playerLocal(S.player) === l.id, onclick: () => irPara(S.player.id, l.id) }, playerLocal(S.player) === l.id ? 'Você está aqui' : 'Ir para cá') : null,
+      isGM() && S.players.length ? h('label', {}, 'Mover jogador para cá', h('select', { onchange: e => { if (e.target.value) irPara(e.target.value, l.id); } },
+        h('option', { value: '' }, 'Escolha…'), S.players.map(p => h('option', { value: p.id }, p.name)))) : null),
+    h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'O que dá para fazer aqui'),
+      h('div', { class: 'log' }, l.atividades.map(id => { const a = ativById(id); return h('div', { class: 'log-item' }, h('span', { class: 'who' }, a.nome), h('span', { class: 'det' }, `${a.teste} · ${a.efeito}`)); }))),
+    isGM() ? h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Ganchos do mestre', h('span', { class: 'muted' }, 'secreto')),
+      h('textarea', { placeholder: 'Quem aparece aqui, o que pode acontecer…', oninput: e => { sec.locais[l.id] = e.target.value; S.secrets = sec; saveSecrets(); } }, sec.locais[l.id] || '')) : null,
+  );
+}
+
+const periodId = (pid, sem, slot) => `${pid}-${sem}-${slot}`;
+function periodOf(pid, sem, slot) { return S.periods.find(p => p.id === periodId(pid, sem, slot)); }
+async function savePeriod(pid, slot, patch) {
+  const sem = semanaAtual(), id = periodId(pid, sem, slot);
+  const cur = periodOf(pid, sem, slot) || { id, room_code: S.code, player_id: pid, semana: sem, slot, local: '', atividade: '', nota: '', resultado: '' };
+  const row = { ...cur, ...patch };
+  const i = S.periods.findIndex(p => p.id === id); if (i >= 0) S.periods[i] = row; else S.periods.push(row);
+  try { await S.store.upsert('periods', row); } catch (e) { toast('Não salvou: ' + e.message); }
+}
+
+function periodCard(p, slot, editable, gm) {
+  const cur = periodOf(p.id, semanaAtual(), slot) || {};
+  const a = cur.atividade && ativById(cur.atividade);
+  return h('div', { class: 'periodo' },
+    h('div', { class: 'periodo-t' }, `Período ${slot}`),
+    h('div', { class: 'grid2' },
+      h('label', {}, 'Onde', h('select', { disabled: !editable, onchange: e => savePeriod(p.id, slot, { local: e.target.value }) },
+        h('option', { value: '' }, '—'), LOCAIS.map(l => h('option', { value: l.id, selected: l.id === cur.local }, l.nome)))),
+      h('label', {}, 'Atividade', h('select', { disabled: !editable, onchange: e => { savePeriod(p.id, slot, { atividade: e.target.value }); renderSemana(); } },
+        h('option', { value: '' }, '—'), ATIVIDADES.map(x => h('option', { value: x.id, selected: x.id === cur.atividade }, x.nome))))),
+    a ? h('div', { class: 'muted' }, `${a.teste} · ${a.efeito}`) : null,
+    h('label', {}, 'Detalhe', h('input', { value: cur.nota || '', disabled: !editable, maxlength: 120, placeholder: 'ex: treino de Domínio com o Arakawa', onchange: e => savePeriod(p.id, slot, { nota: e.target.value }) })),
+    gm ? h('label', {}, 'Resultado (mestre)', h('input', { value: cur.resultado || '', maxlength: 120, placeholder: 'ex: passou, 1 progresso', onchange: e => savePeriod(p.id, slot, { resultado: e.target.value }) }))
+      : cur.resultado ? h('div', { class: 'resultado' }, h('b', {}, 'Resultado: '), cur.resultado) : null,
+  );
+}
+
+function renderSemana() {
+  const box = $('#tab-semana');
+  const sem = semanaAtual();
+  const head = h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, `Semana ${sem}`, isGM() ? h('span', { class: 'muted' }, 'só o mestre muda') : ''),
+    isGM() ? stepper(sem, 1, 99, async v => {
+      S.room.semana = v; $('#week-label').textContent = `Semana ${v}`; renderSemana();
+      try { await S.store.update('rooms', S.code, { semana: v }, 'code'); } catch (e) { toast('Não salvou: ' + e.message); }
+    }, true) : null,
+    h('p', { class: 'muted' }, 'Treino coletivo e escola são obrigatórios. Cada um escolhe 3 períodos livres. De uma semana para a outra, Fôlego e Garra voltam ao máximo.'));
+  if (isGM()) {
+    put(box, head, S.players.length ? S.players.map(p => h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, p.name), [1, 2, 3].map(k => periodCard(p, k, true, true))))
+      : h('div', { class: 'empty' }, 'Ninguém entrou ainda.'));
+  } else if (S.player) {
+    put(box, head, h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Seus períodos'), [1, 2, 3].map(k => periodCard(S.player, k, true, false))));
+  } else put(box, head);
+}
+
 // ================= abas e topo =================
 function setTab(tab) {
   S.tab = tab;
@@ -671,14 +865,14 @@ function renderTab() {
   if (S.drag) return;
   const a = document.activeElement;
   if (a && a.closest('.tab-body') && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'checkbox') return; // não atrapalha quem está digitando
-  ({ partida: renderPartida, token: renderTokenTab, dados: renderDados, eu: renderEu, mestre: renderMestre })[S.tab]?.();
+  ({ partida: renderPartida, token: renderTokenTab, local: renderLocal, semana: renderSemana, dados: renderDados, eu: renderEu, mestre: renderMestre })[S.tab]?.();
 }
 function renderMatchSelect() {
   const sel = $('#match-select');
   sel.replaceChildren(...(S.matches.length ? S.matches.map(m => h('option', { value: m.id, selected: S.match && m.id === S.match.id }, m.name)) : [h('option', {}, 'Sem partida')]));
   sel.disabled = !isGM() || !S.matches.length;
 }
-function renderAll() { renderMatchSelect(); renderZones(); renderTokens(); renderScore(); renderTab(); }
+function renderAll() { renderMatchSelect(); renderZones(); renderTokens(); renderScore(); renderCity(); renderTab(); }
 
 function shareLink() {
   const u = new URL(location.href); u.search = ''; u.searchParams.set('sala', S.code);
@@ -713,13 +907,15 @@ async function enterRoom(code, role, name, pass) {
   history.replaceState(null, '', shareLink());
   S.players = await S.store.select('players', { room_code: code }, { order: 'created_at' });
   S.matches = await S.store.select('matches', { room_code: code }, { order: 'created_at' });
+  try { S.periods = await S.store.select('periods', { room_code: code }); } catch { S.periods = []; }
 
   $('#lobby').hidden = true; $('#app').hidden = false;
   $('#room-name').textContent = room.name; $('#room-code').textContent = code;
   $('#me-chip').textContent = isGM() ? 'Mestre' : S.me.name;
   document.querySelector('[data-tab="mestre"]').hidden = !isGM();
   document.querySelector('[data-tab="eu"]').hidden = isGM();
-  drawPitch();
+  drawPitch(); drawCity();
+  setMode(room.view === 'cidade' ? 'cidade' : 'campo', false);
 
   if (!S.matches.length && isGM()) { await novaPartida('Partida 1'); return; }
   const active = room.active_match && S.matches.find(m => m.id === room.active_match) ? room.active_match : S.matches[S.matches.length - 1]?.id;
@@ -743,6 +939,7 @@ function listen() {
     { table: 'rooms', filter: `code=eq.${S.code}` },
     { table: 'matches', filter: `room_code=eq.${S.code}` },
     { table: 'players', filter: `room_code=eq.${S.code}` },
+    { table: 'periods', filter: `room_code=eq.${S.code}` },
   ];
   if (S.match) specs.push({ table: 'tokens', filter: `match_id=eq.${S.match.id}` }, { table: 'rolls', filter: `match_id=eq.${S.match.id}` });
   const conn = $('#conn'); conn.className = 'conn';
@@ -784,9 +981,18 @@ function onChange(table, type, n, o) {
       const i = S.players.findIndex(p => p.id === n.id); if (i >= 0) S.players[i] = n; else S.players.push(n);
       if (S.player && n.id === S.player.id) S.player = n;
     }
+    renderCity();
     if (S.tab !== 'dados') renderTab();
+  } else if (table === 'periods') {
+    if (type === 'DELETE') S.periods = S.periods.filter(p => p.id !== o.id);
+    else { const i = S.periods.findIndex(p => p.id === n.id); if (i >= 0) S.periods[i] = n; else S.periods.push(n); }
+    if (S.tab === 'semana' || S.tab === 'local') renderTab();
   } else if (table === 'rooms' && type === 'UPDATE') {
+    const viewChanged = (n.view || 'campo') !== (S.room.view || 'campo');
+    const weekChanged = (n.semana || 1) !== (S.room.semana || 1);
     S.room = n; $('#room-name').textContent = n.name;
+    if (viewChanged && !isGM()) setMode(n.view === 'cidade' ? 'cidade' : 'campo', false);
+    if (weekChanged) { $('#week-label').textContent = `Semana ${n.semana || 1}`; if (S.tab === 'semana') renderTab(); }
     if (n.active_match && (!S.match || n.active_match !== S.match.id)) loadMatch(n.active_match);
   }
 }
@@ -841,6 +1047,8 @@ async function boot() {
     await loadMatch(e.target.value);
   });
   document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  $('#mode-campo').addEventListener('click', () => setMode('campo', true));
+  $('#mode-cidade').addEventListener('click', () => setMode('cidade', true));
   for (const k of ['zonas', 'cds', 'nomes', 'inverter']) {
     const el = $('#opt-' + k); el.checked = !!S.opts[k];
     el.addEventListener('change', () => { S.opts[k] = el.checked; lsSet('eda-opts', S.opts); renderZones(); renderTokens(); });

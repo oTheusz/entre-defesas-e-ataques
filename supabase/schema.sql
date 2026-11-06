@@ -154,3 +154,28 @@ create policy "fotos_upload" on storage.objects for insert to anon, authenticate
 drop policy if exists "fotos_read" on storage.objects;
 create policy "fotos_read" on storage.objects for select to anon, authenticated
   using (bucket_id = 'fotos');
+
+-- ---------- Slice of life (cidade e semana) ----------
+alter table rooms add column if not exists view text not null default 'campo';
+alter table rooms add column if not exists semana int not null default 1;
+alter table players add column if not exists local text not null default 'dormitorio';
+
+create table if not exists periods (
+  id text primary key,
+  room_code text not null references rooms(code) on delete cascade,
+  player_id text not null,
+  semana int not null default 1,
+  slot int not null default 1,
+  local text not null default '',
+  atividade text not null default '',
+  nota text not null default '',
+  resultado text not null default ''
+);
+create index if not exists periods_room_idx on periods(room_code, semana);
+alter table periods enable row level security;
+drop policy if exists "mesa_all" on periods;
+create policy "mesa_all" on periods for all to anon, authenticated using (true) with check (true);
+alter table periods replica identity full;
+do $$ begin
+  alter publication supabase_realtime add table periods;
+exception when duplicate_object then null; end $$;

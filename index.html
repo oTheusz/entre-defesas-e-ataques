@@ -64,29 +64,41 @@
   <main class="layout">
     <section class="field-wrap">
       <div class="field-tools">
-        <label class="tg"><input type="checkbox" id="opt-zonas" checked><span>Zonas</span></label>
-        <label class="tg"><input type="checkbox" id="opt-cds"><span>CDs</span></label>
-        <label class="tg"><input type="checkbox" id="opt-nomes" checked><span>Nomes</span></label>
-        <label class="tg"><input type="checkbox" id="opt-inverter"><span>Visão do adversário</span></label>
+        <div class="modes" role="tablist" aria-label="Cena">
+          <button id="mode-campo" class="on" role="tab">Campo</button>
+          <button id="mode-cidade" role="tab">Cidade</button>
+        </div>
+        <span class="tools-campo">
+          <label class="tg"><input type="checkbox" id="opt-zonas" checked><span>Zonas</span></label>
+          <label class="tg"><input type="checkbox" id="opt-cds"><span>CDs</span></label>
+          <label class="tg"><input type="checkbox" id="opt-nomes" checked><span>Nomes</span></label>
+          <label class="tg"><input type="checkbox" id="opt-inverter"><span>Visão do adversário</span></label>
+        </span>
+        <span class="tools-cidade" hidden><b id="week-label">Semana 1</b></span>
         <span class="spacer"></span>
         <span id="conn" class="conn" title="Conexão">●</span>
       </div>
       <div class="field-box">
         <svg id="field" viewBox="0 0 680 1050" preserveAspectRatio="xMidYMid meet" aria-label="Campo de futebol"></svg>
+        <svg id="city" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet" aria-label="Mapa de Ushio Minato" hidden></svg>
       </div>
       <div class="scorebar" id="scorebar"></div>
     </section>
 
     <aside class="side">
       <nav class="tabs" id="tabs">
-        <button data-tab="partida" class="on">Partida</button>
-        <button data-tab="token">Token</button>
+        <button data-tab="partida" data-mode="campo" class="on">Partida</button>
+        <button data-tab="token" data-mode="campo">Token</button>
+        <button data-tab="local" data-mode="cidade">Local</button>
+        <button data-tab="semana" data-mode="cidade">Semana</button>
         <button data-tab="dados">Dados</button>
         <button data-tab="eu" data-player>Meu jogador</button>
         <button data-tab="mestre" data-gm>Mestre</button>
       </nav>
       <div class="tab-body" id="tab-partida"></div>
       <div class="tab-body" id="tab-token" hidden></div>
+      <div class="tab-body" id="tab-local" hidden></div>
+      <div class="tab-body" id="tab-semana" hidden></div>
       <div class="tab-body" id="tab-dados" hidden></div>
       <div class="tab-body" id="tab-eu" hidden></div>
       <div class="tab-body" id="tab-mestre" hidden></div>

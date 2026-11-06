@@ -81,7 +81,8 @@ function localStore() {
   const now = () => new Date().toISOString();
   const defaults = {
     matches: { state: {} }, tokens: { res: {}, photo: '', owner: '', important: false, name: '' },
-    players: { skills: {} }, rolls: { data: {}, kind: 'roll' },
+    players: { skills: {}, local: 'dormitorio' }, rolls: { data: {}, kind: 'roll' },
+    periods: { local: '', atividade: '', nota: '', resultado: '' },
   };
 
   return {
