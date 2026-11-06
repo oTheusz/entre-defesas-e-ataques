@@ -176,6 +176,7 @@ function buildToken(t) {
   }
   if (S.opts.nomes && t.name) g.append(s('text', { y: ly, 'text-anchor': 'middle', class: 'tok-label' }, t.name));
   g.addEventListener('pointerdown', e => startDrag(e, 'tok', t.id));
+  g.addEventListener('touchstart', e => { if (canMoveToken(t)) e.preventDefault(); }, { passive: false });
   return g;
 }
 
@@ -202,6 +203,7 @@ function renderBall() {
     el.append(s('circle', { r: 11, fill: '#fff', stroke: '#111', 'stroke-width': 2.5 }));
     el.append(s('path', { d: 'M0 -5 L4.8 -1.5 L3 4 L-3 4 L-4.8 -1.5 Z', fill: '#111' }));
     el.addEventListener('pointerdown', e => startDrag(e, 'ball'));
+    el.addEventListener('touchstart', e => { if (canMoveBall()) e.preventDefault(); }, { passive: false });
     g.append(el);
   }
   el.classList.toggle('locked', !canMoveBall());
