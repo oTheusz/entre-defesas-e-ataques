@@ -148,7 +148,7 @@ function buildToken(t) {
   const r = tokR(t), home = t.team === 'home';
   const mine = t.owner && t.owner === S.me.id;
   const g = s('g', { class: 'tok' + (canMoveToken(t) ? '' : ' locked'), 'data-id': t.id });
-  if (S.selected === t.id) g.append(s('circle', { r: r + 9, fill: 'none', stroke: '#e8b100', 'stroke-width': 4, 'stroke-dasharray': '7 5' }));
+  if (S.selected === t.id) g.append(s('circle', { r: r + 9, fill: 'none', stroke: '#4fc3f7', 'stroke-width': 4, 'stroke-dasharray': '7 5' }));
   if (mine) g.append(s('circle', { r: r + 4, fill: 'none', stroke: '#e8b100', 'stroke-width': 3 }));
   g.append(s('circle', { r, fill: home ? '#111' : '#fff', stroke: home ? '#fff' : '#111', 'stroke-width': 3 }));
   if (t.important && t.photo) {
@@ -400,7 +400,7 @@ function renderTokenTab() {
         h('label', {}, 'Time', h('select', { onchange: e => updateToken(t, { team: e.target.value }) },
           h('option', { value: 'home', selected: t.team === 'home' }, S.match.state.home.name),
           h('option', { value: 'away', selected: t.team === 'away' }, S.match.state.away.name))),
-        h('label', {}, 'Dono', h('select', { onchange: e => updateToken(t, { owner: e.target.value, important: e.target.value ? true : t.important }) },
+        h('label', {}, 'Dono', h('select', { onchange: e => updateToken(t, { owner: e.target.value, important: !!e.target.value }) },
           h('option', { value: '' }, 'Mestre'),
           S.players.map(p => h('option', { value: p.id, selected: p.id === t.owner }, p.name))))) : null,
       gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: t.important, onchange: e => updateToken(t, { important: e.target.checked }) }), h('span', {}, 'Token principal (maior, com foto)')) : null,
