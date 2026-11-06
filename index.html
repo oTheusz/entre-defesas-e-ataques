@@ -73,6 +73,8 @@
           <label class="tg"><input type="checkbox" id="opt-cds"><span>CDs</span></label>
           <label class="tg"><input type="checkbox" id="opt-nomes" checked><span>Nomes</span></label>
           <label class="tg"><input type="checkbox" id="opt-inverter"><span>Visão do adversário</span></label>
+          <label class="tg"><input type="checkbox" id="opt-impedimento"><span>Impedimento</span></label>
+          <span class="arrow-tools"><button id="btn-seta" class="tg-btn" title="Desenhar seta: arraste no campo">➜ Seta</button><select id="arrow-tipo" aria-label="Tipo de seta"><option value="passe">Passe</option><option value="corrida">Corrida</option></select><button id="btn-limpar" class="tg-btn" title="Apagar todas as setas">Limpar</button></span>
         </span>
         <span class="tools-cidade" hidden><b id="week-label">Semana 1</b></span>
         <span class="spacer"></span>
@@ -82,6 +84,7 @@
         <svg id="field" viewBox="0 0 680 1050" preserveAspectRatio="xMidYMid meet" aria-label="Campo de futebol"></svg>
         <svg id="city" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet" aria-label="Mapa de Ushio Minato" hidden></svg>
       </div>
+      <div class="bench" id="bench"></div>
       <div class="scorebar" id="scorebar"></div>
     </section>
 

@@ -80,7 +80,7 @@ function localStore() {
   const match = (row, where) => Object.entries(where).every(([k, v]) => row[k] === v);
   const now = () => new Date().toISOString();
   const defaults = {
-    matches: { state: {} }, tokens: { res: {}, photo: '', owner: '', important: false, name: '' },
+    matches: { state: {} }, tokens: { res: {}, photo: '', owner: '', important: false, name: '', bench: false },
     players: { skills: {}, local: 'dormitorio' }, rolls: { data: {}, kind: 'roll' },
     periods: { local: '', atividade: '', nota: '', resultado: '' },
   };

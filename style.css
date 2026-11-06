@@ -203,3 +203,20 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .periodo-t { font-family: var(--display); letter-spacing: .08em; text-transform: uppercase; font-size: 12px; }
 .resultado { background: #eef6ef; border-left: 4px solid var(--grass); padding: 6px 8px; font-size: 13px; }
 @media (max-width: 900px) { #city { max-height: 70vh; } }
+
+/* ---------- fase 3 ---------- */
+.arrow-tools { display: inline-flex; align-items: stretch; }
+.tg-btn { border: 1.5px solid var(--ink); background: var(--paper); padding: 3px 9px; font-size: 12px; font-weight: 600; }
+.tg-btn.on { background: #ffd600; }
+.arrow-tools select { width: auto; padding: 2px 4px; font-size: 12px; border-left: 0; border-right: 0; }
+#field.drawing { cursor: crosshair; touch-action: none; }
+.bench { display: grid; gap: 4px; padding: 6px 12px; background: var(--paper); border-top: 1px solid var(--line); }
+.bench:empty { display: none; }
+.bench-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 30px; }
+.bench-t { font-family: var(--display); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; min-width: 150px; }
+.bench-t em { font-style: normal; color: var(--muted); }
+.bench-chip { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--ink); background: var(--paper); padding: 2px 8px 2px 2px; border-radius: 999px; font-size: 12px; }
+.bench-chip b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); border: 1.5px solid var(--ink); font-family: var(--display); }
+.bench-chip.home b { background: var(--ink); color: var(--paper); }
+.bench-chip.sel { outline: 3px dashed #4fc3f7; outline-offset: 1px; }
+.bench-chip.mine { box-shadow: 0 0 0 3px #e8b100; }

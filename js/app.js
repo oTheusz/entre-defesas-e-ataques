@@ -48,7 +48,8 @@ const S = {
   me: { id: null, name: '' }, player: null,
   matches: [], match: null, tokens: new Map(), players: [], rolls: [],
   secrets: {}, selected: null, lastRoll: null,
-  opts: lsGet('eda-opts', { zonas: true, cds: false, nomes: true, inverter: false }),
+  opts: { zonas: true, cds: false, nomes: true, inverter: false, impedimento: false, ...lsGet('eda-opts', {}) },
+  arrowMode: false, arrowTipo: 'passe', drawingArrow: null,
   mode: 'campo', periods: [], selLocal: null,
   tab: 'partida', live: null, drag: null, liveTok: new Map(), liveBall: null,
 };
@@ -89,9 +90,13 @@ function drawPitch() {
     g.append(s('path', { d: `M ${340 - dx} ${yy} A ${a} ${a} 0 0 ${top ? 0 : 1} ${340 + dx} ${yy}`, ...L }));
     g.append(s('rect', { x: 340 - 37, y: top ? y0 - 14 : y0, width: 74, height: 14, fill: 'rgba(255,255,255,.35)', stroke: '#fff', 'stroke-width': 2 }));
   }
-  svg.append(g, s('g', { id: 'zones' }), s('g', { id: 'tokens' }), s('g', { id: 'ballg' }));
+  const defs = s('defs', {},
+    s('marker', { id: 'ah-passe', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, s('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#fff' })),
+    s('marker', { id: 'ah-corrida', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, s('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#ffd600' })));
+  svg.append(defs, g, s('g', { id: 'zones' }), s('g', { id: 'offside' }), s('g', { id: 'arrows' }), s('g', { id: 'tokens' }), s('g', { id: 'ballg' }));
   svg.addEventListener('pointerdown', e => {
     if (e.target.closest('.tok') || e.target.closest('#ball')) return;
+    if (S.arrowMode && S.match) { startArrow(e); return; }
     if (S.selected) { S.selected = null; renderTokens(); renderTab(); }
   });
 }
@@ -113,12 +118,15 @@ function renderZones() {
   const st = S.match?.state;
   const up = S.opts.inverter ? st?.away?.name : st?.home?.name;
   g.append(s('text', { x: FX + 6, y: 14, 'text-anchor': 'start', class: 'zone-nm', style: 'font-size:12px' }, `▲ ataque de ${up || '—'}`));
+  renderArrows();
 }
 
 function tokenPos(t) {
   const lv = S.liveTok.get(t.id);
   return lv ? [lv.x, lv.y] : [t.x, t.y];
 }
+const hiddenForMe = t => !isGM() && t.team === 'away' && S.match?.state?.fog;
+const onField = t => !t.bench;
 const canMoveToken = t => isGM() || (t.owner && t.owner === S.me.id);
 const canEditToken = t => isGM() || (t.owner && t.owner === S.me.id);
 const tokR = t => (t.important ? 30 : 21);
@@ -126,11 +134,11 @@ const tokR = t => (t.important ? 30 : 21);
 function renderTokens() {
   const g = $('#tokens'); if (!g) return;
   const seen = new Set();
-  const list = [...S.tokens.values()].sort((a, b) => (a.important - b.important));
+  const list = [...S.tokens.values()].filter(t => onField(t) && !hiddenForMe(t)).sort((a, b) => (a.important - b.important));
   for (const t of list) {
     seen.add(t.id);
     let el = g.querySelector(`[data-id="${t.id}"]`);
-    const key = JSON.stringify([t.team, t.number, t.name, t.photo, t.owner, t.important, t.res, S.selected === t.id, S.opts.nomes, S.me.id]);
+    const key = JSON.stringify([t.team, t.number, t.name, t.photo, t.owner, t.important, t.res, S.selected === t.id, S.opts.nomes, S.me.id, !!S.match?.state?.fog]);
     if (!el || el.dataset.key !== key) {
       const n = buildToken(t); n.dataset.key = key;
       if (el) el.replaceWith(n); else g.append(n);
@@ -138,11 +146,12 @@ function renderTokens() {
     }
     const [x, y] = tokenPos(t), [px, py] = toPx(x, y);
     el.setAttribute('transform', `translate(${px.toFixed(1)} ${py.toFixed(1)})`);
+    el.style.opacity = isGM() && t.team === 'away' && S.match?.state?.fog ? .45 : '';
   }
   g.querySelectorAll('.tok').forEach(el => { if (!seen.has(el.dataset.id)) el.remove(); });
   // importantes por cima
   list.filter(t => t.important).forEach(t => { const el = g.querySelector(`[data-id="${t.id}"]`); if (el) g.append(el); });
-  renderBall();
+  renderBall(); renderOffside(); renderBench();
 }
 
 function buildToken(t) {
@@ -326,14 +335,17 @@ function renderPartida() {
   const team = side => {
     const T = st[side];
     const name = gm ? h('input', { value: T.name, onchange: e => saveState({ [side]: { ...st[side], name: e.target.value || (side === 'home' ? 'Casa' : 'Fora') } }) }) : h('b', {}, T.name);
+    const secret = !gm && side === 'away' && st.fog;
     const form = h('select', { disabled: !gm, onchange: e => saveState({ [side]: { ...st[side], formation: e.target.value } }) },
-      Object.keys(FORMACOES).map(f => h('option', { value: f, selected: f === T.formation }, f)));
+      secret ? h('option', {}, '???') : Object.keys(FORMACOES).map(f => h('option', { value: f, selected: f === T.formation }, f)));
     const style = h('select', { disabled: !gm, onchange: e => saveState({ [side]: { ...st[side], style: e.target.value } }) },
-      ESTILOS.map(f => h('option', { value: f, selected: f === T.style }, f === '—' ? 'Sem estilo' : f)));
+      secret ? h('option', {}, '???') : ESTILOS.map(f => h('option', { value: f, selected: f === T.style }, f === '—' ? 'Sem estilo' : f)));
     return h('div', { class: 'sec' },
-      h('div', { class: 'sec-t' }, side === 'home' ? 'Time da casa' : 'Visitante', h('span', { class: 'muted' }, FORMACOES[T.formation]?.nota || '')),
+      h('div', { class: 'sec-t' }, side === 'home' ? 'Time da casa' : 'Visitante', h('span', { class: 'muted' }, secret ? '' : (FORMACOES[T.formation]?.nota || ''))),
       name,
       h('div', { class: 'grid2' }, h('label', {}, 'Formação', form), h('label', {}, 'Estilo', style)),
+      gm && side === 'away' ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!st.fog, onchange: e => saveState({ fog: e.target.checked }) }), h('span', {}, 'Esconder dos jogadores (até o Duelo Tático)')) : null,
+      !gm && side === 'away' && st.fog ? h('p', { class: 'muted' }, 'Formação escondida pelo mestre.') : null,
       gm ? h('div', { class: 'grid2' },
         h('button', { class: 'btn btn-sm', onclick: () => aplicarFormacao(side, 'saida') }, 'Posicionar: saída'),
         h('button', { class: 'btn btn-sm', onclick: () => aplicarFormacao(side, 'jogo') }, 'Posicionar: em jogo')) : null,
@@ -364,7 +376,7 @@ function renderPartida() {
 
 async function aplicarFormacao(team, modo) {
   const st = S.match.state; const f = st[team].formation;
-  const toks = [...S.tokens.values()].filter(t => t.team === team).sort((a, b) => a.slot - b.slot);
+  const toks = [...S.tokens.values()].filter(t => t.team === team && onField(t)).sort((a, b) => a.slot - b.slot).slice(0, 11);
   const ups = toks.map((t, i) => { const p = posicaoFormacao(f, i, team, modo); t.x = p.x; t.y = p.y; return { id: t.id, ...p }; });
   renderTokens();
   try { await Promise.all(ups.map(u => S.store.update('tokens', u.id, { x: u.x, y: u.y }))); toast(`${st[team].name}: ${f}`); }
@@ -435,6 +447,18 @@ function renderTokenTab() {
         h('button', { class: 'btn btn-sm', onclick: () => saveState({ ball: { ...S.match.state.ball, holder: t.id } }) }, 'Dar a bola'),
         h('button', { class: 'btn btn-sm', onclick: () => { saveState({ score: { ...S.match.state.score, [t.team]: S.match.state.score[t.team] + 1 } }); logEvent(`⚽ GOL! ${t.name || 'nº ' + t.number} (${S.match.state[t.team].name})`); } }, 'Marcou gol'),
         h('button', { class: 'btn btn-sm btn-red', onclick: e => confirmBtn(e.currentTarget, () => removeToken(t)) }, 'Remover token'))));
+    const subs = (S.match.state.subs || {})[t.team] || 0;
+    const reservas = [...S.tokens.values()].filter(x => x.team === t.team && x.bench).sort((a, b) => a.number - b.number);
+    if (t.bench) {
+      parts.push(h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'No banco', h('span', { class: 'muted' }, `substituições: ${subs}/5`)),
+        h('button', { class: 'btn btn-sm', onclick: () => colocarEmCampo(t) }, 'Colocar em campo (sem contar substituição)')));
+    } else {
+      const sel = h('select', {}, reservas.length ? reservas.map(x => h('option', { value: x.id }, `${x.number} · ${x.name || 'Reserva'}`)) : h('option', { value: '' }, 'Banco vazio'));
+      parts.push(h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Substituição', h('span', { class: 'muted' }, `${subs}/5 usadas`)),
+        h('div', { class: 'row' }, sel, h('button', { class: 'btn btn-sm btn-dark', disabled: !reservas.length, onclick: () => substituir(t, S.tokens.get(sel.value)) }, 'Substituir')),
+        h('button', { class: 'btn btn-sm', onclick: () => updateToken(t, { bench: true }) }, 'Mandar para o banco'),
+        subs >= 5 ? h('p', { class: 'muted', style: 'color:#c62828' }, 'Limite de 5 substituições atingido.') : null));
+    }
   }
   put(box, ...parts);
 }
@@ -659,8 +683,104 @@ async function apagarPartida() {
 async function addToken(team) {
   const used = [...S.tokens.values()].filter(t => t.team === team).map(t => t.number);
   let n = 12; while (used.includes(n)) n++;
-  const row = { match_id: S.match.id, team, slot: 99, number: n, name: '', photo: '', owner: '', important: false, x: team === 'home' ? .04 : .96, y: .5, res: recursosIniciais() };
+  const row = { match_id: S.match.id, team, slot: 99, number: n, name: '', photo: '', owner: '', important: false, bench: true, x: team === 'home' ? .04 : .96, y: .5, res: recursosIniciais() };
   try { const [t] = await S.store.insert('tokens', row); S.tokens.set(t.id, t); S.selected = t.id; renderTokens(); setTab('token'); } catch (e) { toast(e.message); }
+}
+
+// ================= fase 3: banco, setas, impedimento =================
+function renderBench() {
+  const box = $('#bench'); if (!box) return;
+  if (!S.match || S.mode === 'cidade') { box.replaceChildren(); return; }
+  const st = S.match.state, subs = st.subs || {};
+  const row = side => {
+    const list = [...S.tokens.values()].filter(t => t.team === side && t.bench).sort((a, b) => a.number - b.number);
+    if (side === 'away' && st.fog && !isGM()) return null;
+    return h('div', { class: 'bench-row' },
+      h('span', { class: 'bench-t' }, `Banco · ${st[side].name}`, h('em', {}, ` ${subs[side] || 0}/5`)),
+      list.length ? list.map(t => h('button', { class: 'bench-chip' + (t.team === 'home' ? ' home' : '') + (S.selected === t.id ? ' sel' : '') + (t.owner && t.owner === S.me.id ? ' mine' : ''),
+        title: t.name || `Camisa ${t.number}`, onclick: () => { S.selected = t.id; renderTokens(); setTab('token'); } },
+        h('b', {}, t.number), t.name ? h('span', {}, t.name) : null))
+        : h('span', { class: 'muted' }, 'vazio'));
+  };
+  put(box, row('home'), row('away'));
+}
+
+async function substituir(sai, entra) {
+  if (!sai || !entra) return;
+  const st = S.match.state, subs = { ...(st.subs || {}) };
+  subs[sai.team] = (subs[sai.team] || 0) + 1;
+  const r = { ...recursosIniciais(), ...(entra.res || {}) };
+  const entraPatch = { bench: false, x: sai.x, y: sai.y, slot: sai.slot, res: { ...r, folego: r.folegoMax || r.folego } };
+  const saiPatch = { bench: true, slot: 99 };
+  Object.assign(entra, entraPatch); Object.assign(sai, saiPatch);
+  if (st.ball?.holder === sai.id) await saveState({ subs, ball: { ...st.ball, holder: entra.id } }); else await saveState({ subs });
+  S.selected = entra.id; renderTokens(); renderTab();
+  logEvent(`🔁 Sai ${sai.name || 'nº ' + sai.number}, entra ${entra.name || 'nº ' + entra.number} (${st[sai.team].name})`);
+  try { await Promise.all([S.store.update('tokens', entra.id, entraPatch), S.store.update('tokens', sai.id, saiPatch)]); }
+  catch (e) { toast('Não salvou: ' + e.message); }
+  if (subs[sai.team] > 5) toast('Passou do limite de 5 substituições.');
+  else toast(`Gás novo: ${entra.name || 'nº ' + entra.number} tem +1 no primeiro lance.`);
+}
+async function colocarEmCampo(t) {
+  await updateToken(t, { bench: false, x: .5, y: t.team === 'home' ? .75 : .25 });
+}
+
+// setas de jogada
+const ARROW_TIPOS = { passe: { cor: '#fff', dash: null }, corrida: { cor: '#ffd600', dash: '14 10' } };
+function renderArrows() {
+  const g = $('#arrows'); if (!g) return;
+  g.innerHTML = '';
+  const arr = (S.match?.state?.arrows || []).concat(S.drawingArrow ? [S.drawingArrow] : []);
+  for (const a of arr) {
+    const [x1, y1] = toPx(a.x1, a.y1), [x2, y2] = toPx(a.x2, a.y2);
+    const tp = ARROW_TIPOS[a.tipo] || ARROW_TIPOS.passe;
+    g.append(s('line', { x1, y1, x2, y2, stroke: 'rgba(0,0,0,.45)', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-dasharray': tp.dash }));
+    g.append(s('line', { x1, y1, x2, y2, stroke: tp.cor, 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-dasharray': tp.dash, 'marker-end': `url(#ah-${a.tipo || 'passe'})` }));
+  }
+}
+function startArrow(e) {
+  e.preventDefault();
+  const svg = $('#field'); svg.setPointerCapture(e.pointerId);
+  const p0 = svgPoint(e); const [x1, y1] = fromPx(p0.x, p0.y);
+  S.drawingArrow = { x1, y1, x2: x1, y2: y1, tipo: S.arrowTipo || 'passe' };
+  const move = ev => { const p = svgPoint(ev); const [x, y] = fromPx(p.x, p.y); S.drawingArrow.x2 = x; S.drawingArrow.y2 = y; renderArrows(); };
+  const up = async () => {
+    svg.removeEventListener('pointermove', move); svg.removeEventListener('pointerup', up); svg.removeEventListener('pointercancel', up);
+    const a = S.drawingArrow; S.drawingArrow = null;
+    if (!a) return;
+    const [ax, ay] = toPx(a.x1, a.y1), [bx, by] = toPx(a.x2, a.y2);
+    if (Math.hypot(bx - ax, by - ay) < 25) { renderArrows(); return; }
+    const arrows = (S.match.state.arrows || []).concat([{ ...a, by: S.me.id }]).slice(-20);
+    await saveState({ arrows });
+  };
+  svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+}
+function setArrowMode(on) {
+  S.arrowMode = on;
+  $('#btn-seta').classList.toggle('on', on);
+  $('#field').classList.toggle('drawing', on);
+}
+
+// linha de impedimento: penúltimo defensor, nunca além do meio-campo
+function renderOffside() {
+  const g = $('#offside'); if (!g) return;
+  g.innerHTML = '';
+  if (!S.opts.impedimento || !S.match) return;
+  const linha = (defende) => {
+    const ys = [...S.tokens.values()].filter(t => t.team === defende && onField(t) && !hiddenForMe(t)).map(t => tokenPos(t)[1]);
+    if (ys.length < 2) return null;
+    if (defende === 'away') { ys.sort((a, b) => a - b); return Math.min(ys[1], .5); }
+    ys.sort((a, b) => b - a); return Math.max(ys[1], .5);
+  };
+  const holder = S.match.state.ball?.holder && S.tokens.get(S.match.state.ball.holder);
+  const quem = holder ? [holder.team === 'home' ? 'away' : 'home'] : ['away', 'home'];
+  for (const def of quem) {
+    const y = linha(def); if (y == null) continue;
+    const [, py] = toPx(.5, y);
+    const cor = def === 'away' ? '#4fc3f7' : '#ff8a65';
+    g.append(s('line', { x1: FX, y1: py, x2: FX + FW, y2: py, stroke: cor, 'stroke-width': 3, 'stroke-dasharray': '16 8' }));
+    g.append(s('text', { x: FX + FW - 6, y: py - 6, 'text-anchor': 'end', class: 'zone-nm', style: `font-size:12px;fill:${cor}` }, `impedimento · defesa ${S.match.state[def].name}`));
+  }
 }
 
 // ================= cidade (slice of life) =================
@@ -682,7 +802,7 @@ function setMode(mode, broadcast) {
   document.querySelector('.tools-campo').hidden = cidade;
   document.querySelector('.tools-cidade').hidden = !cidade;
   $('#week-label').textContent = `Semana ${semanaAtual()}`;
-  $('#scorebar').hidden = cidade;
+  $('#scorebar').hidden = cidade; $('#bench').hidden = cidade; if (cidade) setArrowMode(false);
   document.querySelectorAll('#tabs button[data-mode]').forEach(b => { b.hidden = b.dataset.mode !== mode; });
   const cur = document.querySelector(`#tabs button[data-tab="${S.tab}"]`);
   if (!cur || cur.hidden) setTab(cidade ? 'local' : 'partida'); else renderTab();
@@ -1051,10 +1171,13 @@ async function boot() {
   document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#mode-campo').addEventListener('click', () => setMode('campo', true));
   $('#mode-cidade').addEventListener('click', () => setMode('cidade', true));
-  for (const k of ['zonas', 'cds', 'nomes', 'inverter']) {
+  for (const k of ['zonas', 'cds', 'nomes', 'inverter', 'impedimento']) {
     const el = $('#opt-' + k); el.checked = !!S.opts[k];
     el.addEventListener('change', () => { S.opts[k] = el.checked; lsSet('eda-opts', S.opts); renderZones(); renderTokens(); });
   }
+  $('#btn-seta').addEventListener('click', () => setArrowMode(!S.arrowMode));
+  $('#arrow-tipo').addEventListener('change', e => { S.arrowTipo = e.target.value; });
+  $('#btn-limpar').addEventListener('click', () => { if (S.match) saveState({ arrows: [] }); });
   window.addEventListener('resize', () => renderBall());
 
   const params = new URLSearchParams(location.search);

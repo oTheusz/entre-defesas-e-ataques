@@ -179,3 +179,6 @@ alter table periods replica identity full;
 do $$ begin
   alter publication supabase_realtime add table periods;
 exception when duplicate_object then null; end $$;
+
+-- ---------- Banco de reservas ----------
+alter table tokens add column if not exists bench boolean not null default false;
