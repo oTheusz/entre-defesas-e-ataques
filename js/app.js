@@ -48,7 +48,7 @@ const S = {
   me: { id: null, name: '' }, player: null,
   matches: [], match: null, tokens: new Map(), players: [], rolls: [],
   secrets: {}, selected: null, lastRoll: null,
-  opts: { zonas: true, cds: false, nomes: true, inverter: false, impedimento: false, ...lsGet('eda-opts', {}) },
+  opts: { zonas: true, cds: false, nomes: true, inverter: false, impedimento: false, grade: '3', ...lsGet('eda-opts', {}) },
   arrowMode: false, arrowTipo: 'passe', drawingArrow: null,
   mode: 'campo', periods: [], selLocal: null,
   tab: 'partida', live: null, drag: null, liveTok: new Map(), liveBall: null,
@@ -93,12 +93,48 @@ function drawPitch() {
   const defs = s('defs', {},
     s('marker', { id: 'ah-passe', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, s('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#fff' })),
     s('marker', { id: 'ah-corrida', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, s('path', { d: 'M0 0 L10 5 L0 10 z', fill: '#ffd600' })));
-  svg.append(defs, g, s('g', { id: 'zones' }), s('g', { id: 'offside' }), s('g', { id: 'arrows' }), s('g', { id: 'tokens' }), s('g', { id: 'ballg' }));
+  svg.append(defs, g, s('g', { id: 'grid' }), s('g', { id: 'zones' }), s('g', { id: 'offside' }), s('g', { id: 'reach' }), s('g', { id: 'arrows' }), s('g', { id: 'tokens' }), s('g', { id: 'ballg' }));
   svg.addEventListener('pointerdown', e => {
     if (e.target.closest('.tok') || e.target.closest('#ball')) return;
     if (S.arrowMode && S.match) { startArrow(e); return; }
     if (S.selected) { S.selected = null; renderTokens(); renderTab(); }
   });
+}
+
+// ---- grade e alcance (modo tático) ----
+const M_W = 68, M_H = 105; // campo em metros
+const metros = (ax, ay, bx, by) => Math.hypot((bx - ax) * M_W, (by - ay) * M_H);
+function renderGrid() {
+  const g = $('#grid'); if (!g) return; g.innerHTML = '';
+  const q = parseFloat(S.opts.grade) || 0; if (!q) return;
+  const sx = FW / M_W * q, sy = FH / M_H * q;
+  let d = '';
+  for (let x = FX + sx; x < FX + FW - 0.5; x += sx) d += `M${x.toFixed(1)} ${FY}V${FY + FH}`;
+  for (let y = FY + sy; y < FY + FH - 0.5; y += sy) d += `M${FX} ${y.toFixed(1)}H${FX + FW}`;
+  g.append(s('path', { d, stroke: 'rgba(255,255,255,.16)', 'stroke-width': 1, fill: 'none' }));
+}
+const DESLOC = 9, DESLOC_BOLA = 6; // metros por turno
+function turnoAtual(st) { const o = st && ordemAtual(st); return o && o.fase !== 'npcs' ? o.lista[o.vez || 0] : null; }
+function tokDaVez(st) {
+  const v = turnoAtual(st); if (!v) return null;
+  if (v.id.startsWith('tok:')) return S.tokens.get(v.id.slice(4)) || null;
+  return [...S.tokens.values()].find(t => t.owner === v.id && onField(t)) || null;
+}
+function renderReach() {
+  const g = $('#reach'); if (!g) return; g.innerHTML = '';
+  if (!S.match) return;
+  const st = S.match.state;
+  const vez = tokDaVez(st);
+  if (vez && !hiddenForMe(vez)) { const [cx, cy] = toPx(vez.x, vez.y); g.append(s('circle', { cx, cy, r: tokR(vez) + 9, class: 'vez-ring' })); }
+  const t = S.selected && S.tokens.get(S.selected);
+  if (!t || !onField(t) || hiddenForMe(t)) return;
+  const comBola = st.ball?.holder === t.id;
+  const r = comBola ? DESLOC_BOLA : DESLOC;
+  const [cx, cy] = toPx(t.x, t.y);
+  const ell = (m, cls) => s('ellipse', { cx, cy, rx: m * FW / M_W, ry: m * FH / M_H, class: cls });
+  g.append(ell(r * 2, 'reach-run'), ell(r, 'reach-walk'));
+  g.append(s('text', { x: cx, y: cy - r * FH / M_H - 6, 'text-anchor': 'middle', class: 'reach-lbl' }, `${r} m${comBola ? ' (com bola)' : ''}`));
+  g.append(s('text', { x: cx, y: cy - r * 2 * FH / M_H - 6, 'text-anchor': 'middle', class: 'reach-lbl' }, `${r * 2} m com Arranque`));
 }
 
 function renderZones() {
@@ -132,6 +168,7 @@ const canEditToken = t => isGM() || (t.owner && t.owner === S.me.id);
 const tokR = t => (t.important ? 30 : 21);
 
 function renderTokens() {
+  renderReach();
   const g = $('#tokens'); if (!g) return;
   const seen = new Set();
   const list = [...S.tokens.values()].filter(t => onField(t) && !hiddenForMe(t)).sort((a, b) => (a.important - b.important));
@@ -318,7 +355,11 @@ function renderScore() {
     h('div', { class: 'sb-score' }, h('span', {}, st.score.home), '×', h('span', {}, st.score.away)),
     h('div', { class: 'sb-team away' }, h('span', { class: 'nm' }, st.away.name)),
     h('div', { class: 'sb-meta' }, h('span', {}, `Bloco ${st.bloco} · ${(st.bloco - 1) * 15}'–${st.bloco * 15}'`), h('span', {}, `Momento: ${momTxt}`),
-      (() => { const o = ordemAtual(st); const v = o && o.lista.find(x => !x.feito && x.total != null); return v ? h('span', { class: 'sb-vez' }, `Lance: ${v.name}`) : null; })()),
+      (() => { const o = ordemAtual(st); if (!o) return null;
+        if (o.fase === 'npcs') return h('span', { class: 'sb-vez' }, `Rodada ${o.rodada || 1} · vez dos NPCs`);
+        const v = o.lista[o.vez || 0]; if (!v) return null;
+        const meu = v.id === S.me.id;
+        return h('span', { class: 'sb-vez' }, `Rodada ${o.rodada || 1} · vez: ${v.name}`, meu ? h('button', { class: 'btn btn-sm btn-dark sb-fim', onclick: passarVez }, '✔ Terminar meu turno') : null); })()),
   );
 }
 
@@ -462,22 +503,48 @@ function ordemAtual(st) { return st.ordem && st.ordem.bloco === st.bloco ? st.or
 function ordemSec(st, gm) {
   const o = ordemAtual(st);
   const lista = o ? o.lista : [];
-  const vez = lista.find(x => !x.feito && x.total != null);
+  const fase = o?.fase || 'jogadores', vez = o?.vez || 0;
+  const atual = o && fase !== 'npcs' ? lista[vez] : null;
+  const meu = atual && atual.id === S.me.id;
   return h('div', { class: 'sec ordem' },
-    h('div', { class: 'sec-t' }, `Ordem do bloco ${st.bloco}`, h('span', { class: 'muted' }, 'd20 + Percepção de Campo')),
-    o ? h('ol', { class: 'ordem-list' }, lista.map((x, i) => h('li', { class: (x.feito ? 'feito' : '') + (x === vez ? ' vez' : '') },
+    h('div', { class: 'sec-t' }, o ? `Turnos · rodada ${o.rodada || 1}` : `Turnos do bloco ${st.bloco}`, h('span', { class: 'muted' }, 'ordem: d20 + Percepção de Campo')),
+    o ? h('ol', { class: 'ordem-list' }, lista.map((x, i) => h('li', { class: (i === vez && fase !== 'npcs' ? 'vez' : '') + (fase === 'npcs' || i < vez ? ' feito' : '') },
       h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name, x.npc ? h('em', { class: 'npc-tag' }, ` NPC · ${x.team}`) : null),
       gm ? h('input', { type: 'number', class: 'ord-in', value: x.total ?? '', placeholder: '—', 'aria-label': `Resultado de ${x.name}`, onchange: e => notaOrdem(i, e.target.value) })
-        : h('span', { class: 'tot' }, x.total ?? '—'),
-      h('span', {}),
-      gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!x.feito, onchange: e => marcarOrdem(i, e.target.checked) }), h('span', {}, 'feito')) : (x.feito ? h('span', { class: 'muted' }, 'feito') : h('span', {})))))
-      : h('p', { class: 'muted' }, gm ? 'No começo do bloco, depois do Duelo, cada jogador rola Percepção de Campo na aba Dados (os Destaques NPC você rola). Clique em "Montar ordem" e digite os resultados.' : 'Role Percepção de Campo na aba Dados quando o mestre pedir.'),
-    o && vez ? h('p', { class: 'vez-txt' }, `Lance-chave agora: `, h('b', {}, vez.name)) : null,
-    o && lista.length && lista.every(x => x.feito) ? h('p', { class: 'muted' }, 'Todo mundo já teve o seu lance. Hora da resolução rápida.') : null,
-    gm ? h('button', { class: 'btn btn-sm btn-dark', onclick: montarOrdem }, o ? 'Montar de novo' : 'Montar ordem') : null,
-    h('p', { class: 'muted' }, 'Cada personagem protagoniza um lance-chave nessa ordem e começa com a bola. Dentro do lance, a bola manda.'),
+        : h('span', { class: 'tot' }, x.total ?? '—'))),
+      h('li', { class: 'npc-fase' + (fase === 'npcs' ? ' vez' : '') }, h('span', { class: 'pos' }, '🤖'), h('span', { class: 'nm' }, 'Fase dos NPCs'), h('span', {})))
+      : h('p', { class: 'muted' }, gm ? 'Depois do Duelo, cada jogador rola Percepção de Campo na aba Dados (os Destaques NPC você rola). Clique em "Montar ordem" e digite os resultados.' : 'Role Percepção de Campo na aba Dados quando o mestre pedir.'),
+    atual ? h('p', { class: 'vez-txt' }, 'Vez de ', h('b', {}, atual.name), atual.npc ? ' (NPC)' : '') : null,
+    meu ? h('button', { class: 'btn btn-dark big-turn', onclick: passarVez }, '✔ Terminar meu turno') : null,
+    o && fase === 'npcs' ? h('p', { class: 'vez-txt' }, h('b', {}, 'Fase dos NPCs: '), 'mova os NPCs e faça 2 ações de NPC (1 do adversário, 1 do time da mesa).') : null,
+    gm && o ? h('div', { class: 'grid2' },
+      fase !== 'npcs' ? h('button', { class: 'btn btn-sm btn-dark', onclick: passarVez }, 'Passar a vez ▶') : h('button', { class: 'btn btn-sm btn-dark', onclick: novaRodada }, `Começar rodada ${(o.rodada || 1) + 1} ▶`),
+      h('button', { class: 'btn btn-sm', onclick: voltarVez }, '◀ Voltar')) : null,
+    gm && o && fase === 'npcs' ? h('button', { class: 'btn btn-sm', onclick: () => autoNPCs(true) }, '🤖 Mover NPCs agora') : null,
+    gm ? h('div', { class: 'grid2' },
+      h('button', { class: 'btn btn-sm', onclick: montarOrdem }, o ? 'Montar ordem de novo' : 'Montar ordem'),
+      o ? h('button', { class: 'btn btn-sm', onclick: novoLance }, 'Novo lance (rodada 1)') : null) : null,
+    h('p', { class: 'muted' }, `Cada turno: mover até ${DESLOC} m (${DESLOC_BOLA} m com a bola; o dobro com Arranque, que é ação completa) + 2 ações simples ou 1 completa. Reação: 1 por rodada.`),
   );
 }
+async function setOrdem(patch, log) {
+  const st = S.match.state; const o = ordemAtual(st); if (!o) return;
+  await saveState({ ordem: { ...o, ...patch } }); renderTab(); renderTokens();
+  if (log) logEvent(log);
+}
+function passarVez() {
+  const o = ordemAtual(S.match.state); if (!o) return;
+  const v = (o.vez || 0) + 1;
+  if (v >= o.lista.length) setOrdem({ vez: v, fase: 'npcs' }, `Rodada ${o.rodada || 1}: vez dos NPCs`);
+  else setOrdem({ vez: v, fase: 'jogadores' });
+}
+function voltarVez() {
+  const o = ordemAtual(S.match.state); if (!o) return;
+  if (o.fase === 'npcs') setOrdem({ vez: o.lista.length - 1, fase: 'jogadores' });
+  else setOrdem({ vez: Math.max(0, (o.vez || 0) - 1) });
+}
+function novaRodada() { const o = ordemAtual(S.match.state); if (!o) return; setOrdem({ rodada: (o.rodada || 1) + 1, vez: 0, fase: 'jogadores' }, `Rodada ${(o.rodada || 1) + 1}`); }
+function novoLance() { setOrdem({ rodada: 1, vez: 0, fase: 'jogadores' }, 'Novo lance'); }
 async function montarOrdem() {
   const st = S.match.state;
   const donos = new Set([...S.tokens.values()].filter(t => t.owner && !t.res?.vermelho).map(t => t.owner));
@@ -488,13 +555,13 @@ async function montarOrdem() {
     if (t.important && !t.owner && onField(t) && !t.res?.vermelho && t.name) lista.push({ id: 'tok:' + t.id, name: t.name, npc: true, team: st[t.team]?.name || '', total: null, feito: false });
   }
   if (!lista.length) { toast('Ninguém em campo pra entrar na ordem.'); return; }
-  await saveState({ ordem: { bloco: st.bloco, lista } }); renderTab();
+  await saveState({ ordem: { bloco: st.bloco, lista, rodada: 1, vez: 0, fase: 'jogadores' } }); renderTab(); renderTokens();
 }
 async function notaOrdem(i, v) {
   const st = S.match.state; const o = ordemAtual(st); if (!o) return;
   const lista = o.lista.map((x, k) => k === i ? { ...x, total: v === '' ? null : num(v) } : x)
     .sort((a, b) => (b.total ?? -99) - (a.total ?? -99));
-  await saveState({ ordem: { ...o, lista } });
+  await saveState({ ordem: { ...o, lista, vez: 0, fase: 'jogadores' } });
   if (document.activeElement?.classList.contains('ord-in')) document.activeElement.blur();
   renderTab();
   if (lista.every(x => x.total != null)) logEvent(`Ordem do bloco ${st.bloco}: ` + lista.map(x => `${x.name} ${x.total}`).join(' · '));
@@ -987,6 +1054,9 @@ function renderArrows() {
     const tp = ARROW_TIPOS[a.tipo] || ARROW_TIPOS.passe;
     g.append(s('line', { x1, y1, x2, y2, stroke: 'rgba(0,0,0,.45)', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-dasharray': tp.dash }));
     g.append(s('line', { x1, y1, x2, y2, stroke: tp.cor, 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-dasharray': tp.dash, 'marker-end': `url(#ah-${a.tipo || 'passe'})` }));
+    const m = metros(a.x1, a.y1, a.x2, a.y2);
+    const extra = (a.tipo || 'passe') === 'passe' ? (m > 30 ? ' · CD +5, completa' : m > 15 ? ' · CD +2' : '') : (m > DESLOC * 2 ? ' · além do Arranque' : m > DESLOC ? ' · precisa de Arranque' : '');
+    g.append(s('text', { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 10, 'text-anchor': 'middle', class: 'arrow-lbl' }, `${Math.round(m)} m${extra}`));
   }
 }
 function startArrow(e) {
@@ -1270,7 +1340,7 @@ async function enterRoom(code, role, name, pass) {
   $('#me-chip').textContent = isGM() ? 'Mestre' : S.me.name;
   document.querySelector('[data-tab="mestre"]').hidden = !isGM();
   document.querySelector('[data-tab="eu"]').hidden = isGM();
-  drawPitch(); drawCity();
+  drawPitch(); renderGrid(); drawCity();
   setMode(room.view === 'cidade' ? 'cidade' : 'campo', false);
 
   if (!S.matches.length && isGM()) { await novaPartida('Partida 1'); return; }
@@ -1407,6 +1477,8 @@ async function boot() {
   document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#mode-campo').addEventListener('click', () => setMode('campo', true));
   $('#mode-cidade').addEventListener('click', () => setMode('cidade', true));
+  const gsel = $('#opt-grade');
+  if (gsel) { gsel.value = S.opts.grade || '0'; gsel.addEventListener('change', () => { S.opts.grade = gsel.value; lsSet('eda-opts', S.opts); renderGrid(); }); }
   for (const k of ['zonas', 'cds', 'nomes', 'inverter', 'impedimento']) {
     const el = $('#opt-' + k); el.checked = !!S.opts[k];
     el.addEventListener('change', () => { S.opts[k] = el.checked; lsSet('eda-opts', S.opts); renderZones(); renderTokens(); });

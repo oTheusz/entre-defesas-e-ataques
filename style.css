@@ -245,3 +245,16 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .sum-tab td:first-child { text-align: left; }
 .sum-tab td input:not([type=checkbox]) { width: 100%; min-width: 120px; padding: 4px 6px; }
 .gol-box { background: #fff7d9; padding: 10px; }
+
+/* modo tático */
+.vez-ring { fill: none; stroke: #e8b100; stroke-width: 4; stroke-dasharray: 8 6; animation: vezspin 6s linear infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes vezspin { to { transform: rotate(360deg); } }
+.reach-walk { fill: rgba(255,255,255,.10); stroke: rgba(255,255,255,.85); stroke-width: 2; }
+.reach-run { fill: none; stroke: rgba(255,214,0,.8); stroke-width: 2; stroke-dasharray: 10 8; }
+.reach-lbl { font: 700 12px var(--text); fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 3px; pointer-events: none; }
+.arrow-lbl { font: 700 13px var(--text); fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 4px; pointer-events: none; }
+#reach, #grid { pointer-events: none; }
+.tg-sel select { margin-left: 6px; padding: 2px 4px; font: inherit; }
+.big-turn { width: 100%; font-size: 16px; padding: 12px; margin: 6px 0; }
+.sb-fim { margin-left: 8px; padding: 2px 10px; }
+.ordem-list li.npc-fase { grid-template-columns: 26px 1fr auto; }
