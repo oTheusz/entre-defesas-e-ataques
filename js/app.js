@@ -872,9 +872,10 @@ function distSeg(px, py, ax, ay, bx, by) { // metros
 function infoPasse(de, para, entreLinhas) {
   const [ax, ay] = tokenPos(de), [bx, by] = tokenPos(para);
   const m = metros(ax, ay, bx, by);
-  const z = zonaDe(de.team, bx, by);
-  const parts = [{ l: z.nome, v: z.cd }];
-  if (m > 30) parts.push({ l: 'mais de 30 m', v: 5 }); else if (m > 15) parts.push({ l: '16 a 30 m', v: 2 });
+  const parts = [{ l: 'passe livre', v: 10 }];
+  if (m > 30) parts.push({ l: 'mais de 30 m', v: 6 }); else if (m > 15) parts.push({ l: '16 a 30 m', v: 3 });
+  const mk = marcadorDe(para);
+  if (mk) parts.push({ l: `${tNome(para)} marcado por ${tNome(mk)}`, v: 3 });
   if (para.res?.condicao === 'Inseguro') parts.push({ l: `${tNome(para)} Inseguro`, v: 2 });
   if (entreLinhas) parts.push({ l: 'entre as linhas', v: 5 });
   const cd = parts.reduce((a, x) => a + x.v, 0);
@@ -893,7 +894,7 @@ function abrirPasse(de, para) {
     put(corpo,
       h('div', { class: 'pp-t' }, `Passe: ${tNome(de)} → ${tNome(para)}`),
       h('div', {}, h('b', {}, `CD ${i.cd}`), ` · ${Math.round(i.m)} m`, i.completa ? ' · ação completa' : ''),
-      h('div', { class: 'muted' }, i.parts.map(x => `${x.l} ${x === i.parts[0] ? x.v : sign(x.v)}`).join(' · ')),
+      h('div', { class: 'muted' }, i.parts.map((x, k) => `${x.l} ${k === 0 ? x.v : sign(x.v)}`).join(' · ')),
       i.inter.length ? h('div', { class: 'pp-warn' }, `Podem interceptar: ${i.inter.map(tNome).join(', ')}`) : null,
       h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: entre, onchange: e => { entre = e.target.checked; desenha(); } }), h('span', {}, 'entre as linhas (+5)')),
       h('div', { class: 'grid2' },
@@ -928,7 +929,7 @@ async function declararPasse(de, para, entre, corpo) {
     h('div', {}, `d20 ${dice.length > 1 ? '[' + dice.join(', ') + '] → ' : ''}${nat} ${sign(bonus)} contra CD ${i.cd}`),
     h('div', {}, h('b', {}, resolve(data))),
     ok && i.inter.length ? h('div', { class: 'pp-warn' }, `${i.inter.map(tNome).join(', ')} pode(m) tentar interceptar: Antecipação contra ${data.total}.`) : null,
-    ok && !i.inter.length ? h('div', { class: 'muted' }, `Chegou. Domínio do ${tNome(para)}: CD ${zonaDe(para.team, ...tokenPos(para)).cd - 5}.`) : null,
+    ok && !i.inter.length ? h('div', { class: 'muted' }, `Chegou. Domínio do ${tNome(para)}: CD ${cdSugerida(para, 'Domínio')?.cd ?? 10}${i.m > 30 ? ' (+2 por ser bola longa)' : ''}.`) : null,
     h('div', { class: 'grid2' },
       ok && podeMover ? h('button', { class: 'btn btn-sm btn-dark', onclick: darBola }, i.inter.length ? 'Chegou (ninguém cortou)' : 'Dar a bola') : null,
       h('button', { class: 'btn btn-sm', onclick: fecharPasse }, 'Fechar')));
@@ -980,7 +981,7 @@ function meuToken() {
 function cdSugerida(t, skill) {
   if (!t || !onField(t)) return null;
   const z = zonaDe(t.team, ...tokenPos(t));
-  if (skill === 'Domínio') return { cd: z.cd - 5, txt: `${z.nome} (${z.cd}) − 5` };
+  if (skill === 'Domínio') return { cd: 10, txt: 'base 10 (marcação já desconta −2 no bônus; bola longa +2)' };
   return null;
 }
 function modsLinha(base, mods, skill) {
