@@ -234,3 +234,4 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .sb-vez { color: #e8b100; font-weight: 700; }
 .quick { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 6px; }
 .quick .btn { padding: 4px 10px; }
+.ordem-list .ord-in { width: 64px; padding: 4px 6px; font: 700 16px var(--display); text-align: center; }

@@ -316,7 +316,7 @@ function renderScore() {
     h('div', { class: 'sb-score' }, h('span', {}, st.score.home), '×', h('span', {}, st.score.away)),
     h('div', { class: 'sb-team away' }, h('span', { class: 'nm' }, st.away.name)),
     h('div', { class: 'sb-meta' }, h('span', {}, `Bloco ${st.bloco} · ${(st.bloco - 1) * 15}'–${st.bloco * 15}'`), h('span', {}, `Momento: ${momTxt}`),
-      (() => { const o = ordemAtual(st); const v = o && o.lista.find(x => !x.feito); return v ? h('span', { class: 'sb-vez' }, `Lance: ${v.name}`) : null; })()),
+      (() => { const o = ordemAtual(st); const v = o && o.lista.find(x => !x.feito && x.total != null); return v ? h('span', { class: 'sb-vez' }, `Lance: ${v.name}`) : null; })()),
   );
 }
 
@@ -385,30 +385,38 @@ function ordemAtual(st) { return st.ordem && st.ordem.bloco === st.bloco ? st.or
 function ordemSec(st, gm) {
   const o = ordemAtual(st);
   const lista = o ? o.lista : [];
-  const vez = lista.find(x => !x.feito);
+  const vez = lista.find(x => !x.feito && x.total != null);
   return h('div', { class: 'sec ordem' },
     h('div', { class: 'sec-t' }, `Ordem do bloco ${st.bloco}`, h('span', { class: 'muted' }, 'd20 + Percepção de Campo')),
     o ? h('ol', { class: 'ordem-list' }, lista.map((x, i) => h('li', { class: (x.feito ? 'feito' : '') + (x === vez ? ' vez' : '') },
-      h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name), h('span', { class: 'tot' }, x.total),
-      h('span', { class: 'det muted' }, `${x.nat} ${sign(x.bonus)}`),
-      gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!x.feito, onchange: e => marcarOrdem(i, e.target.checked) }), h('span', {}, 'feito')) : (x.feito ? h('span', { class: 'muted' }, 'feito') : null))))
-      : h('p', { class: 'muted' }, gm ? 'Role no começo do bloco, depois do Duelo Tático.' : 'O mestre ainda não rolou a ordem deste bloco.'),
+      h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name),
+      gm ? h('input', { type: 'number', class: 'ord-in', value: x.total ?? '', placeholder: '—', 'aria-label': `Resultado de ${x.name}`, onchange: e => notaOrdem(i, e.target.value) })
+        : h('span', { class: 'tot' }, x.total ?? '—'),
+      h('span', {}),
+      gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!x.feito, onchange: e => marcarOrdem(i, e.target.checked) }), h('span', {}, 'feito')) : (x.feito ? h('span', { class: 'muted' }, 'feito') : h('span', {})))))
+      : h('p', { class: 'muted' }, gm ? 'No começo do bloco, depois do Duelo, cada jogador rola Percepção de Campo na aba Dados. Clique em "Montar ordem" e digite os resultados.' : 'Role Percepção de Campo na aba Dados quando o mestre pedir.'),
     o && vez ? h('p', { class: 'vez-txt' }, `Lance-chave agora: `, h('b', {}, vez.name)) : null,
-    o && !vez ? h('p', { class: 'muted' }, 'Todo mundo já teve o seu lance. Hora da resolução rápida.') : null,
-    gm ? h('button', { class: 'btn btn-sm btn-dark', onclick: rolarOrdem }, o ? 'Rolar de novo' : 'Rolar ordem do bloco') : null,
+    o && lista.length && lista.every(x => x.feito) ? h('p', { class: 'muted' }, 'Todo mundo já teve o seu lance. Hora da resolução rápida.') : null,
+    gm ? h('button', { class: 'btn btn-sm btn-dark', onclick: montarOrdem }, o ? 'Montar de novo' : 'Montar ordem') : null,
     h('p', { class: 'muted' }, 'Cada personagem protagoniza um lance-chave nessa ordem e começa com a bola. Dentro do lance, a bola manda.'),
   );
 }
-async function rolarOrdem() {
+async function montarOrdem() {
   const st = S.match.state;
   const donos = new Set([...S.tokens.values()].filter(t => t.owner && !t.res?.vermelho).map(t => t.owner));
   const ps = S.players.filter(p => donos.has(p.id));
   if (!ps.length) { toast('Nenhum jogador com token nesta partida.'); return; }
-  const lista = ps.map(p => { const nat = d20(), bonus = num(p.skills?.['Percepção de Campo']); return { id: p.id, name: p.name, nat, bonus, total: nat + bonus, feito: false }; })
-    .sort((a, b) => b.total - a.total || b.bonus - a.bonus || b.nat - a.nat);
-  await saveState({ ordem: { bloco: st.bloco, lista } });
+  const lista = ps.map(p => ({ id: p.id, name: p.name, total: null, feito: false }));
+  await saveState({ ordem: { bloco: st.bloco, lista } }); renderTab();
+}
+async function notaOrdem(i, v) {
+  const st = S.match.state; const o = ordemAtual(st); if (!o) return;
+  const lista = o.lista.map((x, k) => k === i ? { ...x, total: v === '' ? null : num(v) } : x)
+    .sort((a, b) => (b.total ?? -99) - (a.total ?? -99));
+  await saveState({ ordem: { ...o, lista } });
+  if (document.activeElement?.classList.contains('ord-in')) document.activeElement.blur();
   renderTab();
-  logEvent(`Ordem do bloco ${st.bloco}: ` + lista.map(x => `${x.name} ${x.total}`).join(' · '));
+  if (lista.every(x => x.total != null)) logEvent(`Ordem do bloco ${st.bloco}: ` + lista.map(x => `${x.name} ${x.total}`).join(' · '));
 }
 async function marcarOrdem(i, v) {
   const st = S.match.state; const o = ordemAtual(st); if (!o) return;
