@@ -387,6 +387,76 @@ function renderPartida() {
   );
 }
 
+// ---- súmula ----
+function tokInfo(id) { const t = S.tokens.get(id); return t ? { name: t.name || `Camisa ${t.number}`, team: t.team, pid: t.owner || '' } : { name: '?', team: '', pid: '' }; }
+async function addSumula(ev) {
+  const st = S.match.state; const info = tokInfo(ev.tok);
+  const e = { ...ev, ...info, bloco: st.bloco, id: Math.random().toString(36).slice(2, 9) };
+  await saveState({ sumula: [...(st.sumula || []), e] });
+}
+async function confirmarGol(t, assistId) {
+  const st = S.match.state; S.golPend = null;
+  const evs = [...(st.sumula || [])];
+  const gol = { t: 'gol', tok: t.id, ...tokInfo(t.id), bloco: st.bloco, id: Math.random().toString(36).slice(2, 9) };
+  if (assistId) { gol.assist = tokInfo(assistId).name; evs.push(gol, { t: 'assist', tok: assistId, ...tokInfo(assistId), bloco: st.bloco, id: Math.random().toString(36).slice(2, 9) }); }
+  else evs.push(gol);
+  await saveState({ score: { ...st.score, [t.team]: st.score[t.team] + 1 }, sumula: evs });
+  logEvent(`⚽ GOL! ${gol.name} (${st[t.team].name})${gol.assist ? ' · assistência de ' + gol.assist : ''}`);
+  renderTab();
+}
+function sumulaLinhas(st) {
+  const evs = st.sumula || [];
+  const pids = [...new Set([...S.tokens.values()].filter(t => t.owner).map(t => t.owner))];
+  const nomes = st.sumulaNomes || {}, jogou = st.sumulaJogou || {};
+  const melhor = st.melhor && S.tokens.get(st.melhor);
+  return pids.map(pid => {
+    const p = S.players.find(x => x.id === pid);
+    const tok = [...S.tokens.values()].find(t => t.owner === pid);
+    const c = k => evs.filter(e => e.pid === pid && e.t === k).length;
+    return { pid, nome: nomes[pid] ?? (p?.name || tok?.name || 'Jogador'), jogou: jogou[pid] ?? !!(tok && onField(tok)),
+      gols: c('gol'), assist: c('assist'), tp: c('tp'), amarelos: c('amarelo'), vermelho: c('vermelho') > 0, melhor: !!(melhor && melhor.owner === pid) };
+  });
+}
+function sumulaSec(st) {
+  const evs = st.sumula || [];
+  const linhas = sumulaLinhas(st);
+  const named = [...S.tokens.values()].filter(t => t.name).sort((a, b) => (a.team > b.team) - (a.team < b.team) || a.number - b.number);
+  const setMap = (key, pid, v) => saveState({ [key]: { ...(st[key] || {}), [pid]: v } });
+  const tsv = () => linhas.map(l => [st.sumulaRodada || '', st.sumulaAdv ?? st.away.name, l.nome, l.jogou ? 'VERDADEIRO' : 'FALSO', l.gols, l.assist, l.tp, l.amarelos, l.vermelho ? 'VERDADEIRO' : 'FALSO', 'FALSO', l.melhor ? 'VERDADEIRO' : 'FALSO', ''].join('\t')).join('\n');
+  const resumo = () => {
+    const gols = evs.filter(e => e.t === 'gol');
+    const min = e => `${(e.bloco - 1) * 15}'–${e.bloco * 15}'`;
+    const ln = [`**${st.home.name} ${st.score.home} × ${st.score.away} ${st.away.name}**`];
+    if (gols.length) ln.push('', '⚽ ' + gols.map(g => `${g.name}${g.assist ? ` (assist. ${g.assist})` : ''} · ${min(g)}`).join('\n⚽ '));
+    const cards = evs.filter(e => e.t === 'amarelo' || e.t === 'vermelho');
+    if (cards.length) ln.push('', cards.map(c => `${c.t === 'amarelo' ? '🟨' : '🟥'} ${c.name} · ${min(c)}`).join('\n'));
+    const tps = evs.filter(e => e.t === 'tp');
+    if (tps.length) ln.push('', tps.map(c => `✨ Toque Perfeito: ${c.name}`).join('\n'));
+    if (st.melhor && S.tokens.get(st.melhor)) ln.push('', `⭐ Melhor em campo: ${tokInfo(st.melhor).name}`);
+    return ln.join('\n');
+  };
+  const copiar = async (txt, msg) => { try { await navigator.clipboard.writeText(txt); toast(msg); } catch { prompt('Copie:', txt); } };
+  const icon = { gol: '⚽', assist: '🅰️', amarelo: '🟨', vermelho: '🟥', tp: '✨' };
+  return h('div', { class: 'sec sumula' }, h('div', { class: 'sec-t' }, 'Súmula da partida', h('span', { class: 'muted' }, 'preenche sozinha')),
+    h('div', { class: 'grid2' },
+      h('label', {}, 'Rodada', h('input', { value: st.sumulaRodada || '', placeholder: 'ex: 1', onchange: e => saveState({ sumulaRodada: e.target.value }) })),
+      h('label', {}, 'Adversário', h('input', { value: st.sumulaAdv ?? st.away.name, onchange: e => saveState({ sumulaAdv: e.target.value }) }))),
+    h('label', {}, 'Melhor em campo', h('select', { onchange: e => saveState({ melhor: e.target.value || null }) },
+      h('option', { value: '' }, '—'), named.map(t => h('option', { value: t.id, selected: t.id === st.melhor }, `${st[t.team].name} · ${t.name}`)))),
+    linhas.length ? h('table', { class: 'sum-tab' },
+      h('tr', {}, ['Personagem (nome na planilha)', 'Jogou', 'G', 'A', 'TP', '🟨', '🟥'].map(x => h('th', {}, x))),
+      linhas.map(l => h('tr', {},
+        h('td', {}, h('input', { value: l.nome, onchange: e => setMap('sumulaNomes', l.pid, e.target.value) })),
+        h('td', {}, h('input', { type: 'checkbox', checked: l.jogou, onchange: e => setMap('sumulaJogou', l.pid, e.target.checked) })),
+        h('td', {}, l.gols), h('td', {}, l.assist), h('td', {}, l.tp), h('td', {}, l.amarelos), h('td', {}, l.vermelho ? 'sim' : '')))) : h('p', { class: 'muted' }, 'Nenhum personagem com token nesta partida.'),
+    evs.length ? h('div', { class: 'log' }, evs.map(e => h('div', { class: 'log-item' },
+      h('div', { class: 'row', style: 'justify-content:space-between' }, h('span', {}, `${icon[e.t] || ''} ${e.name}${e.assist ? ' (assist. ' + e.assist + ')' : ''} · bloco ${e.bloco}`),
+        h('button', { class: 'btn btn-sm', title: 'Apagar este registro (não mexe no placar)', onclick: () => saveState({ sumula: evs.filter(x => x.id !== e.id) }).then(renderTab) }, '✕'))))) : h('p', { class: 'muted' }, 'Use "Marcou gol", os cartões e "Toque Perfeito" no token. Tudo aparece aqui.'),
+    h('div', { class: 'grid2' },
+      h('button', { class: 'btn btn-sm btn-dark', onclick: () => copiar(tsv(), 'Copiado! Cole na primeira linha vazia da aba Súmula, coluna A.') }, 'Copiar para a planilha'),
+      h('button', { class: 'btn btn-sm', onclick: () => copiar(resumo(), 'Resumo copiado.') }, 'Copiar resumo (Discord)')));
+}
+
 // ---- ordem de protagonista do bloco ----
 function ordemAtual(st) { return st.ordem && st.ordem.bloco === st.bloco ? st.ordem : null; }
 function ordemSec(st, gm) {
@@ -605,8 +675,8 @@ function renderTokenTab() {
       h('span', { class: 'lbl' }, 'Condição'), h('select', { disabled: !edit, onchange: e => setRes({ condicao: e.target.value }) },
         CONDICOES.map(c => h('option', { value: c, selected: c === r.condicao }, c === '—' ? 'Nenhuma' : c))),
       h('span', { class: 'lbl' }, 'Cartões'), h('div', { class: 'row' },
-        stepper(r.amarelo, 0, 2, v => { setRes({ amarelo: v, vermelho: v >= 2 ? true : r.vermelho }); if (gm && v > r.amarelo) logEvent(`Amarelo para ${t.name || 'nº ' + t.number}`); }, gm),
-        h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: r.vermelho, disabled: !gm, onchange: e => { setRes({ vermelho: e.target.checked }); if (e.target.checked) logEvent(`Vermelho para ${t.name || 'nº ' + t.number}`); } }), h('span', {}, 'Vermelho'))),
+        stepper(r.amarelo, 0, 2, v => { setRes({ amarelo: v, vermelho: v >= 2 ? true : r.vermelho }); if (gm && v > r.amarelo) { logEvent(`Amarelo para ${t.name || 'nº ' + t.number}`); addSumula({ t: 'amarelo', tok: t.id }); if (v >= 2 && !r.vermelho) addSumula({ t: 'vermelho', tok: t.id }); } }, gm),
+        h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: r.vermelho, disabled: !gm, onchange: e => { setRes({ vermelho: e.target.checked }); if (e.target.checked) { logEvent(`Vermelho para ${t.name || 'nº ' + t.number}`); addSumula({ t: 'vermelho', tok: t.id }); } } }), h('span', {}, 'Vermelho'))),
     ),
     r.pressao >= 6 ? h('p', { class: 'muted', style: 'color:#c62828;font-weight:700' }, 'Pressão 6: crise!') : null,
   ));
@@ -615,8 +685,18 @@ function renderTokenTab() {
     parts.push(h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Ações do mestre'),
       h('div', { class: 'grid2' },
         h('button', { class: 'btn btn-sm', onclick: () => saveState({ ball: { ...S.match.state.ball, holder: t.id } }) }, 'Dar a bola'),
-        h('button', { class: 'btn btn-sm', onclick: () => { saveState({ score: { ...S.match.state.score, [t.team]: S.match.state.score[t.team] + 1 } }); logEvent(`⚽ GOL! ${t.name || 'nº ' + t.number} (${S.match.state[t.team].name})`); } }, 'Marcou gol'),
+        h('button', { class: 'btn btn-sm', onclick: () => { S.golPend = t.id; renderTab(); } }, 'Marcou gol'),
+        h('button', { class: 'btn btn-sm', onclick: () => { addSumula({ t: 'tp', tok: t.id }); logEvent(`✨ Toque Perfeito de ${t.name || 'nº ' + t.number}`); toast('Toque Perfeito registrado.'); } }, 'Toque Perfeito'),
         h('button', { class: 'btn btn-sm btn-red', onclick: e => confirmBtn(e.currentTarget, () => removeToken(t)) }, 'Remover token'))));
+    if (S.golPend === t.id) {
+      const comp = [...S.tokens.values()].filter(x => x.team === t.team && x.id !== t.id && onField(x)).sort((a, b) => a.number - b.number);
+      const sel = h('select', {}, h('option', { value: '' }, 'Sem assistência'), comp.map(x => h('option', { value: x.id }, `${x.number} · ${x.name || 'Camisa ' + x.number}`)));
+      parts.push(h('div', { class: 'sec gol-box' }, h('div', { class: 'sec-t' }, `⚽ Gol de ${t.name || 'nº ' + t.number}`),
+        h('label', {}, 'Quem deu a assistência?', sel),
+        h('div', { class: 'grid2' },
+          h('button', { class: 'btn btn-sm btn-dark', onclick: () => confirmarGol(t, sel.value) }, 'Confirmar gol'),
+          h('button', { class: 'btn btn-sm', onclick: () => { S.golPend = null; renderTab(); } }, 'Cancelar'))));
+    }
     const subs = (S.match.state.subs || {})[t.team] || 0;
     const reservas = [...S.tokens.values()].filter(x => x.team === t.team && x.bench).sort((a, b) => a.number - b.number);
     if (t.bench) {
@@ -802,6 +882,7 @@ function renderMestre() {
         h('label', {}, st.home.name, stepper(sec.levels.home, 1, 10, v => { sec.levels.home = v; saveSecrets(); renderMestre(); }, true)),
         h('label', {}, st.away.name, stepper(sec.levels.away, 1, 10, v => { sec.levels.away = v; saveSecrets(); renderMestre(); }, true))),
       h('p', { class: 'muted' }, `Duelo Tático contra ${st.away.name}: CD ${10 + sec.levels.away}. Jogadores NPC rolam d20 + ${sec.levels.away + 2} (aprox.).`)) : null,
+    st ? sumulaSec(st) : null,
     h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Notas secretas'),
       h('textarea', { placeholder: 'Só você vê. Ganchos, formação real do adversário, viradas…', oninput: e => { sec.notes = e.target.value; saveSecrets(); } }, sec.notes || '')),
     h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Jogadores na sala'),

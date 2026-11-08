@@ -237,3 +237,11 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .ordem-list .ord-in { width: 64px; padding: 4px 6px; font: 700 16px var(--display); text-align: center; }
 .npc-tag { font-style: normal; font-size: 11px; color: #777; letter-spacing: .03em; }
 .ordem-list li.vez .npc-tag { color: #8a6d00; }
+
+/* súmula */
+.sum-tab { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; }
+.sum-tab th { text-align: left; font: 600 11px var(--text); letter-spacing: .04em; color: #666; padding: 4px; border-bottom: 1px solid #ddd; }
+.sum-tab td { padding: 4px; border-bottom: 1px solid #eee; text-align: center; }
+.sum-tab td:first-child { text-align: left; }
+.sum-tab td input:not([type=checkbox]) { width: 100%; min-width: 120px; padding: 4px 6px; }
+.gol-box { background: #fff7d9; padding: 10px; }
