@@ -315,7 +315,8 @@ function renderScore() {
     h('div', { class: 'sb-team home' }, h('span', { class: 'nm' }, st.home.name)),
     h('div', { class: 'sb-score' }, h('span', {}, st.score.home), '×', h('span', {}, st.score.away)),
     h('div', { class: 'sb-team away' }, h('span', { class: 'nm' }, st.away.name)),
-    h('div', { class: 'sb-meta' }, h('span', {}, `Bloco ${st.bloco} · ${(st.bloco - 1) * 15}'–${st.bloco * 15}'`), h('span', {}, `Momento: ${momTxt}`)),
+    h('div', { class: 'sb-meta' }, h('span', {}, `Bloco ${st.bloco} · ${(st.bloco - 1) * 15}'–${st.bloco * 15}'`), h('span', {}, `Momento: ${momTxt}`),
+      (() => { const o = ordemAtual(st); const v = o && o.lista.find(x => !x.feito); return v ? h('span', { class: 'sb-vez' }, `Lance: ${v.name}`) : null; })()),
   );
 }
 
@@ -349,10 +350,14 @@ function renderPartida() {
       gm ? h('div', { class: 'grid2' },
         h('button', { class: 'btn btn-sm', onclick: () => aplicarFormacao(side, 'saida') }, 'Posicionar: saída'),
         h('button', { class: 'btn btn-sm', onclick: () => aplicarFormacao(side, 'jogo') }, 'Posicionar: em jogo')) : null,
+      gm ? h('div', { class: 'grid2' },
+        h('button', { class: 'btn btn-sm', onclick: () => empurrarTime(side, 1) }, '▲ Avançar o time'),
+        h('button', { class: 'btn btn-sm', onclick: () => empurrarTime(side, -1) }, '▼ Recuar o time')) : null,
     );
   };
   const m = st.momento || 0;
   put(box, 
+    ordemSec(st, gm),
     h('div', { class: 'sec' },
       h('div', { class: 'sec-t' }, 'Placar'),
       h('div', { class: 'grid2' },
@@ -362,6 +367,7 @@ function renderPartida() {
     h('div', { class: 'sec' },
       h('div', { class: 'sec-t' }, 'Bloco', h('span', { class: 'muted' }, `${(st.bloco - 1) * 15}' a ${st.bloco * 15}' · ${st.bloco <= 3 ? '1º' : '2º'} tempo`)),
       stepper(st.bloco, 1, 6, v => { saveState({ bloco: v }); if (gm) logEvent(`Começa o bloco ${v} (${(v - 1) * 15}'–${v * 15}')`); }, gm),
+      gm ? h('button', { class: 'btn btn-sm', onclick: e => confirmBtn(e.currentTarget, desgasteBloco) }, 'Desgaste do bloco: −1d4 de Fôlego nos principais') : null,
     ),
     h('div', { class: 'sec' },
       h('div', { class: 'sec-t' }, 'Momento', h('span', { class: 'muted' }, '+1 por ponto')),
@@ -372,6 +378,57 @@ function renderPartida() {
     team('home'), team('away'),
     gm ? null : h('p', { class: 'muted' }, 'Só o mestre altera a partida. Você move o seu token e a bola quando ela estiver com você.'),
   );
+}
+
+// ---- ordem de protagonista do bloco ----
+function ordemAtual(st) { return st.ordem && st.ordem.bloco === st.bloco ? st.ordem : null; }
+function ordemSec(st, gm) {
+  const o = ordemAtual(st);
+  const lista = o ? o.lista : [];
+  const vez = lista.find(x => !x.feito);
+  return h('div', { class: 'sec ordem' },
+    h('div', { class: 'sec-t' }, `Ordem do bloco ${st.bloco}`, h('span', { class: 'muted' }, 'd20 + Percepção de Campo')),
+    o ? h('ol', { class: 'ordem-list' }, lista.map((x, i) => h('li', { class: (x.feito ? 'feito' : '') + (x === vez ? ' vez' : '') },
+      h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name), h('span', { class: 'tot' }, x.total),
+      h('span', { class: 'det muted' }, `${x.nat} ${sign(x.bonus)}`),
+      gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!x.feito, onchange: e => marcarOrdem(i, e.target.checked) }), h('span', {}, 'feito')) : (x.feito ? h('span', { class: 'muted' }, 'feito') : null))))
+      : h('p', { class: 'muted' }, gm ? 'Role no começo do bloco, depois do Duelo Tático.' : 'O mestre ainda não rolou a ordem deste bloco.'),
+    o && vez ? h('p', { class: 'vez-txt' }, `Lance-chave agora: `, h('b', {}, vez.name)) : null,
+    o && !vez ? h('p', { class: 'muted' }, 'Todo mundo já teve o seu lance. Hora da resolução rápida.') : null,
+    gm ? h('button', { class: 'btn btn-sm btn-dark', onclick: rolarOrdem }, o ? 'Rolar de novo' : 'Rolar ordem do bloco') : null,
+    h('p', { class: 'muted' }, 'Cada personagem protagoniza um lance-chave nessa ordem e começa com a bola. Dentro do lance, a bola manda.'),
+  );
+}
+async function rolarOrdem() {
+  const st = S.match.state;
+  const donos = new Set([...S.tokens.values()].filter(t => t.owner && !t.res?.vermelho).map(t => t.owner));
+  const ps = S.players.filter(p => donos.has(p.id));
+  if (!ps.length) { toast('Nenhum jogador com token nesta partida.'); return; }
+  const lista = ps.map(p => { const nat = d20(), bonus = num(p.skills?.['Percepção de Campo']); return { id: p.id, name: p.name, nat, bonus, total: nat + bonus, feito: false }; })
+    .sort((a, b) => b.total - a.total || b.bonus - a.bonus || b.nat - a.nat);
+  await saveState({ ordem: { bloco: st.bloco, lista } });
+  renderTab();
+  logEvent(`Ordem do bloco ${st.bloco}: ` + lista.map(x => `${x.name} ${x.total}`).join(' · '));
+}
+async function marcarOrdem(i, v) {
+  const st = S.match.state; const o = ordemAtual(st); if (!o) return;
+  const lista = o.lista.map((x, k) => k === i ? { ...x, feito: v } : x);
+  await saveState({ ordem: { ...o, lista } }); renderTab();
+}
+async function desgasteBloco() {
+  const toks = [...S.tokens.values()].filter(t => t.important && onField(t) && (t.res?.folegoMax || 0) > 0);
+  if (!toks.length) { toast('Nenhum token principal com Fôlego máximo preenchido.'); return; }
+  const out = [];
+  await Promise.all(toks.map(t => { const d = 1 + Math.floor(Math.random() * 4); const r = { ...recursosIniciais(), ...t.res }; r.folego = Math.max(0, (r.folego || 0) - d); out.push(`${t.name || 'nº ' + t.number} −${d}`); t.res = r; return S.store.update('tokens', t.id, { res: r }); }));
+  renderTokens(); renderTab();
+  logEvent(`Desgaste do bloco ${S.match.state.bloco}: ` + out.join(' · '));
+}
+async function empurrarTime(team, dir) {
+  const dy = (team === 'home' ? -1 : 1) * dir * 0.15;
+  const toks = [...S.tokens.values()].filter(t => t.team === team && onField(t));
+  toks.forEach(t => { t.y = clamp(t.y + dy, 0.03, 0.97); });
+  renderTokens();
+  try { await Promise.all(toks.map(t => S.store.update('tokens', t.id, { y: t.y }))); } catch (e) { toast('Erro: ' + e.message); }
 }
 
 async function aplicarFormacao(team, modo) {
@@ -429,7 +486,17 @@ function renderTokenTab() {
   parts.push(h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Recursos', edit ? '' : h('span', { class: 'muted' }, 'só leitura')),
     h('div', { class: 'res' },
       h('span', { class: 'lbl' }, 'Fôlego'), pair(r.folego, r.folegoMax, v => setRes({ folego: v }), v => setRes({ folegoMax: v })), bar(r.folego, r.folegoMax),
+      edit ? h('div', { class: 'quick' },
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ folego: Math.max(0, r.folego - 1) }) }, '−1'),
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ folego: r.folegoMax ? Math.min(r.folegoMax, r.folego + 1) : r.folego + 1 }) }, '+1'),
+        h('button', { class: 'btn btn-sm', onclick: () => { const d = 1 + Math.floor(Math.random() * 4); setRes({ folego: Math.max(0, r.folego - d) }); toast(`Desgaste: −${d} de Fôlego`); } }, 'Desgaste 1d4'),
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ folego: r.folegoMax }) }, 'Encher')) : null,
       h('span', { class: 'lbl' }, 'Garra'), pair(r.garra, r.garraMax, v => setRes({ garra: v }), v => setRes({ garraMax: v })), bar(r.garra, r.garraMax),
+      edit ? h('div', { class: 'quick' },
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ garra: Math.max(0, r.garra - 1) }) }, '−1'),
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ garra: Math.max(0, r.garra - 2) }) }, '−2'),
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ garra: r.garraMax ? Math.min(r.garraMax, r.garra + 1) : r.garra + 1 }) }, '+1'),
+        h('button', { class: 'btn btn-sm', onclick: () => setRes({ garra: Math.min(r.garraMax || r.garra, r.garra + Math.floor((r.garraMax || 0) / 2)) }) }, 'Intervalo (½)')) : null,
       h('span', { class: 'lbl' }, 'Confiança'), stepper(r.confianca, 0, 10, v => setRes({ confianca: v }), edit),
       h('span', { class: 'lbl' }, 'Pressão'), stepper(r.pressao, 0, 6, v => setRes({ pressao: v }), edit),
       h('span', { class: 'lbl' }, 'Condição'), h('select', { disabled: !edit, onchange: e => setRes({ condicao: e.target.value }) },
@@ -839,7 +906,9 @@ function renderCity() {
     if (sel) m.append(s('circle', { r: 24, fill: 'none', stroke: '#e8b100', 'stroke-width': 4 }));
     m.append(s('circle', { r: 16, fill: '#111', stroke: '#fff', 'stroke-width': 3 }));
     m.append(s('text', { y: 6, 'text-anchor': 'middle', fill: '#fff', style: 'font: 700 16px var(--display)' }, i + 1));
-    m.append(s('text', { y: 36, 'text-anchor': 'middle', class: 'loc-label' }, l.nome));
+    const lw = Math.round(l.nome.length * 7.4 + 16);
+    m.append(s('rect', { x: -lw / 2, y: 21, width: lw, height: 22, rx: 11, class: 'loc-pill' }));
+    m.append(s('text', { y: 36.5, 'text-anchor': 'middle', class: 'loc-label' }, l.nome));
     const pick = () => { S.selLocal = l.id; renderCity(); setTab('local'); };
     m.addEventListener('click', pick);
     m.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
@@ -992,7 +1061,16 @@ async function enterRoom(code, role, name, pass) {
   } else {
     name = (name || '').trim().slice(0, 40);
     if (!name) throw new Error('Digite seu nome.');
-    const pid = `${clientId}-${code}`;
+    const mine = `${clientId}-${code}`;
+    let pid = lsGet('eda-pid-' + code, null) || mine;
+    if (pid === mine) {
+      // mesmo nome em outro aparelho: reaproveita o jogador (e os tokens) que já existe
+      const norm = x => (x || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      const all = await S.store.select('players', { room_code: code }, { order: 'created_at' });
+      const same = all.find(p => norm(p.name) === norm(name));
+      if (same) { pid = same.id; name = same.name; }
+    }
+    lsSet('eda-pid-' + code, pid);
     const [p] = await S.store.upsert('players', { id: pid, room_code: code, name });
     S.player = p; S.me = { id: pid, name };
   }

@@ -195,7 +195,8 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .loc { cursor: pointer; }
 .loc:focus-visible { outline: none; }
 .loc:focus-visible circle:first-of-type { stroke: #e8b100; }
-.loc-label { font: 700 14px var(--text); fill: #111; paint-order: stroke; stroke: #f7f6f1; stroke-width: 5px; }
+.loc-label { font: 700 13px var(--text); fill: #fff; pointer-events: none; }
+.loc-pill { fill: rgba(17,17,17,.82); stroke: rgba(255,255,255,.7); stroke-width: 1; }
 .pessoa { pointer-events: none; }
 .loc-item { display: grid; gap: 2px; text-align: left; border: 0; border-left: 4px solid var(--ink); background: var(--soft); padding: 6px 8px; }
 .loc-item:hover { background: #e9e9e5; }
@@ -220,3 +221,16 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .bench-chip.home b { background: var(--ink); color: var(--paper); }
 .bench-chip.sel { outline: 3px dashed #4fc3f7; outline-offset: 1px; }
 .bench-chip.mine { box-shadow: 0 0 0 3px #e8b100; }
+
+/* ordem do bloco */
+.ordem-list { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 4px; }
+.ordem-list li { display: grid; grid-template-columns: 26px 1fr auto auto auto; align-items: center; gap: 8px; padding: 6px 8px; background: var(--soft); border-left: 4px solid transparent; }
+.ordem-list li .pos { font: 700 15px var(--display); }
+.ordem-list li .tot { font: 700 18px var(--display); }
+.ordem-list li.vez { border-left-color: #e8b100; background: #fff7d9; }
+.ordem-list li.feito { opacity: .5; }
+.ordem-list li.feito .nm { text-decoration: line-through; }
+.vez-txt { margin: 4px 0; }
+.sb-vez { color: #e8b100; font-weight: 700; }
+.quick { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 6px; }
+.quick .btn { padding: 4px 10px; }
