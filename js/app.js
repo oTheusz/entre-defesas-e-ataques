@@ -300,8 +300,10 @@ function onLive(p) {
 // ================= partida =================
 async function saveState(patch) {
   if (!S.match) return;
+  const prevHolder = S.match.state?.ball?.holder;
   const st = { ...S.match.state, ...patch };
   S.match.state = st;
+  if (isGM() && st.autoNpc && patch.ball && patch.ball.holder && patch.ball.holder !== prevHolder) agendarAutoNPC();
   renderScore(); renderZones(); renderBall();
   try { await S.store.update('matches', S.match.id, { state: st }); } catch (e) { toast('Não salvou: ' + e.message); }
 }
@@ -358,6 +360,11 @@ function renderPartida() {
   const m = st.momento || 0;
   put(box, 
     ordemSec(st, gm),
+    gm ? h('div', { class: 'sec' },
+      h('div', { class: 'sec-t' }, 'NPCs automáticos', h('span', { class: 'muted' }, 'só mexe em quem não tem dono')),
+      h('button', { class: 'btn btn-sm btn-dark', onclick: () => autoNPCs(true) }, '🤖 Mover NPCs agora'),
+      h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!st.autoNpc, onchange: e => saveState({ autoNpc: e.target.checked }) }), h('span', {}, 'Mover sozinho quando a bola mudar de dono')),
+      h('p', { class: 'muted' }, 'Os dois times andam em bloco atrás da bola. Quem defende pressiona quem está com a bola e marca os personagens e Destaques do outro time. Os tokens dos jogadores nunca são mexidos.')) : null,
     h('div', { class: 'sec' },
       h('div', { class: 'sec-t' }, 'Placar'),
       h('div', { class: 'grid2' },
@@ -441,6 +448,74 @@ async function empurrarTime(team, dir) {
   toks.forEach(t => { t.y = clamp(t.y + dy, 0.03, 0.97); });
   renderTokens();
   try { await Promise.all(toks.map(t => S.store.update('tokens', t.id, { y: t.y }))); } catch (e) { toast('Erro: ' + e.message); }
+}
+
+// ---- NPCs automáticos (regras simples de bloco e marcação) ----
+let autoTimer = null;
+function agendarAutoNPC() { clearTimeout(autoTimer); autoTimer = setTimeout(() => autoNPCs(false), 700); }
+async function autoNPCs(manual) {
+  if (!S.match || !isGM()) return;
+  const st = S.match.state;
+  const toks = [...S.tokens.values()].filter(t => onField(t) && !t.res?.vermelho);
+  const holder = st.ball?.holder && S.tokens.get(st.ball.holder);
+  const [bx, by] = holder ? tokenPos(holder) : [st.ball?.x ?? .5, st.ball?.y ?? .5];
+  const posse = holder ? holder.team : null;
+  const novo = new Map();
+  for (const team of ['home', 'away']) {
+    const f = st[team].formation;
+    const own = toks.filter(t => t.team === team).sort((a, b) => a.slot - b.slot);
+    const fwd = team === 'home' ? -1 : 1; // direção do ataque em y
+    const center = 0.5 + (by - 0.5) * 0.65 + (posse === team ? 0.07 : posse ? -0.05 : 0) * fwd;
+    own.forEach((t, i) => {
+      if (t.owner) return;
+      const slot = t.slot >= 0 && t.slot < 11 ? t.slot : i;
+      let { x, y } = posicaoFormacao(f, slot, team, 'jogo');
+      if (slot === 0) { x = 0.5 + (bx - 0.5) * 0.2; y = team === 'home' ? 0.94 : 0.06; }
+      else { y = center + (y - 0.5) * 0.62; x = x + (bx - x) * 0.18; }
+      novo.set(t.id, { x: clamp(x, .04, .96), y: clamp(y, .04, .96) });
+    });
+  }
+  // marcação: quem defende cola nos personagens e Destaques de quem ataca
+  if (posse) {
+    const def = posse === 'home' ? 'away' : 'home';
+    const back = def === 'home' ? 1 : -1; // lado do próprio gol de quem defende
+    const livres = toks.filter(t => t.team === def && !t.owner && t.slot !== 0);
+    const alvos = toks.filter(t => t.team === posse && (t.owner || t.important || t === holder))
+      .sort((a, b) => (b === holder) - (a === holder));
+    const pos = t => novo.get(t.id) || { x: t.x, y: t.y };
+    for (const alvo of alvos) {
+      if (!livres.length) break;
+      const [ax, ay] = tokenPos(alvo);
+      livres.sort((a, b) => Math.hypot(pos(a).x - ax, pos(a).y - ay) - Math.hypot(pos(b).x - ax, pos(b).y - ay));
+      const m = livres.shift();
+      const gap = alvo === holder ? 0.055 : 0.065;
+      novo.set(m.id, { x: clamp(ax + (0.5 - ax) * 0.06, .04, .96), y: clamp(ay + gap * back, .04, .96) });
+    }
+  }
+  if (!novo.size) { if (manual) toast('Nenhum NPC para mover.'); return; }
+  // afasta bonecos que ficaram um em cima do outro (só os NPCs se mexem)
+    const pts = toks.map(t => { const p = novo.get(t.id); const [x, y] = p ? [p.x, p.y] : tokenPos(t); const [px, py] = toPx(x, y); return { id: t.id, px, py, r: tokR(t), mov: novo.has(t.id) }; });
+  for (let it = 0; it < 60; it++) {
+    let moved = false;
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const a = pts[i], b = pts[j]; if (!a.mov && !b.mov) continue;
+      let dx = b.px - a.px, dy = b.py - a.py, d = Math.hypot(dx, dy);
+      const MIN = a.r + b.r + 16;
+      if (d >= MIN) continue;
+      if (d < 0.01) { dx = 1; dy = 0; d = 1; }
+      const push = (MIN - d) / (a.mov && b.mov ? 2 : 1);
+      const ux = dx / d, uy = dy / d;
+      if (a.mov) { a.px -= ux * push; a.py -= uy * push; }
+      if (b.mov) { b.px += ux * push; b.py += uy * push; }
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  for (const q of pts) if (q.mov) { const [x, y] = fromPx(q.px, q.py); novo.set(q.id, { x: clamp(x, .04, .96), y: clamp(y, .04, .96) }); }
+  for (const [id, p] of novo) { const t = S.tokens.get(id); if (t) { t.x = p.x; t.y = p.y; } }
+  renderTokens();
+  try { await Promise.all([...novo].map(([id, p]) => S.store.update('tokens', id, p))); if (manual) toast('NPCs reposicionados.'); }
+  catch (e) { toast('Erro: ' + e.message); }
 }
 
 async function aplicarFormacao(team, modo) {
@@ -1151,8 +1226,10 @@ function onChange(table, type, n, o) {
     const i = S.matches.findIndex(m => m.id === n.id);
     if (i >= 0) S.matches[i] = n; else S.matches.push(n);
     if (S.match && n.id === S.match.id) {
+      const prevHolder = S.match.state?.ball?.holder;
       S.match.name = n.name; S.match.state = { ...estadoInicial(), ...(n.state || {}) };
       S.liveBall = null;
+      if (isGM() && S.match.state.autoNpc && S.match.state.ball?.holder && S.match.state.ball.holder !== prevHolder) agendarAutoNPC();
       renderScore(); renderZones(); renderTokens();
       if (S.tab === 'partida' || S.tab === 'mestre' || S.tab === 'token') renderTab();
     }
