@@ -817,36 +817,8 @@ function drawCity() {
   const svg = $('#city'); svg.innerHTML = '';
   const INK = '#111';
   const g = s('g', { id: 'terrain' });
-  g.append(s('rect', { x: 0, y: 0, width: 1000, height: 700, fill: '#f7f6f1' }));
-  // montanhas
-  g.append(s('path', { d: 'M0 210 L90 90 L170 170 L260 40 L360 160 L430 110 L500 60 L580 120 L660 50 L760 150 L840 80 L1000 200 L1000 0 L0 0 Z', fill: '#e3e8e0', stroke: INK, 'stroke-width': 2 }));
-  g.append(s('path', { d: 'M240 66 L260 40 L282 72 M640 78 L660 50 L684 86 M480 86 L500 60 L522 92', fill: 'none', stroke: INK, 'stroke-width': 2 }));
-  // lago
-  g.append(s('path', { d: 'M0 560 C120 540 230 600 360 575 C470 555 560 640 700 625 C820 612 900 660 1000 640 L1000 700 L0 700 Z', fill: '#dbe7ec', stroke: INK, 'stroke-width': 2 }));
-  for (const [x, y] of [[180, 650], [420, 640], [640, 670], [860, 680]]) g.append(s('path', { d: `M${x} ${y} q12 -6 24 0 q12 6 24 0`, fill: 'none', stroke: '#7a9aa6', 'stroke-width': 1.5 }));
-  // ferrovia
-  g.append(s('path', { d: 'M1000 300 C930 360 890 400 860 430 C830 460 820 520 830 700', fill: 'none', stroke: INK, 'stroke-width': 3 }));
-  for (let i = 0; i < 18; i++) {
-    const t = i / 17, x = 1000 - 170 * t + Math.sin(t * 3) * 10, y = 300 + 400 * t;
-    g.append(s('line', { x1: x - 7, y1: y - 3, x2: x + 7, y2: y + 3, stroke: INK, 'stroke-width': 1.5 }));
-  }
-  // ruas
-  const road = d => [s('path', { d, fill: 'none', stroke: INK, 'stroke-width': 14, 'stroke-linecap': 'round' }), s('path', { d, fill: 'none', stroke: '#fff', 'stroke-width': 10, 'stroke-linecap': 'round' })];
-  g.append(...road('M250 300 C300 400 280 470 300 520'), ...road('M300 520 C400 500 520 490 600 520 C650 500 670 470 680 450 C760 440 820 430 860 430'),
-    ...road('M680 450 C690 360 690 300 690 250'), ...road('M600 520 C720 560 800 580 860 590'), ...road('M300 520 C230 560 170 590 140 610'),
-    ...road('M300 520 C360 560 420 590 470 600'), ...road('M250 300 C350 290 430 300 500 290'), ...road('M500 290 C580 280 640 260 690 250'));
-  // escadaria do santuário
-  g.append(s('path', { d: 'M500 290 L500 190', stroke: INK, 'stroke-width': 10, 'stroke-dasharray': '3 5' }));
-  // campo do platô
-  g.append(s('rect', { x: 440, y: 120, width: 120, height: 66, fill: '#cfe1c8', stroke: INK, 'stroke-width': 2 }));
-  g.append(s('line', { x1: 500, y1: 120, x2: 500, y2: 186, stroke: INK, 'stroke-width': 1.5 }));
-  g.append(s('circle', { cx: 500, cy: 153, r: 10, fill: 'none', stroke: INK, 'stroke-width': 1.5 }));
-  // torii
-  g.append(s('path', { d: 'M482 262 h36 M486 270 h28 M488 262 v26 M512 262 v26', stroke: '#c62828', 'stroke-width': 4, fill: 'none' }));
-  // árvores
-  for (const [x, y] of [[90, 260], [120, 300], [380, 220], [610, 200], [780, 280], [930, 250], [200, 420], [420, 400], [960, 520], [80, 450], [560, 380], [760, 360]]) {
-    g.append(s('circle', { cx: x, cy: y, r: 14, fill: '#e3ecdc', stroke: INK, 'stroke-width': 1.5 }));
-  }
+  g.append(s('rect', { x: 0, y: 0, width: 1000, height: 558, fill: '#cfe1c8' }));
+  g.append(s('image', { href: 'img/mapa-ushio.jpg', x: 0, y: 0, width: 1000, height: 558, preserveAspectRatio: 'xMidYMid slice' }));
   // cartela
   g.append(s('rect', { x: 20, y: 20, width: 230, height: 54, fill: '#111' }));
   g.append(s('text', { x: 36, y: 54, fill: '#fff', style: 'font: 700 24px var(--display); letter-spacing: .08em' }, 'USHIO MINATO'));
