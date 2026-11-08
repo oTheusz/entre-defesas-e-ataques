@@ -461,17 +461,33 @@ async function autoNPCs(manual) {
   const [bx, by] = holder ? tokenPos(holder) : [st.ball?.x ?? .5, st.ball?.y ?? .5];
   const posse = holder ? holder.team : null;
   const novo = new Map();
+  // cada time ocupa uma faixa compacta do campo, medida a partir do próprio gol (0 = próprio gol, 1 = gol adversário)
+  const depth = (team, y) => team === 'home' ? 1 - y : y;
+  const fromDepth = (team, d) => team === 'home' ? 1 - d : d;
   for (const team of ['home', 'away']) {
     const f = st[team].formation;
     const own = toks.filter(t => t.team === team).sort((a, b) => a.slot - b.slot);
-    const fwd = team === 'home' ? -1 : 1; // direção do ataque em y
-    const center = 0.5 + (by - 0.5) * 0.65 + (posse === team ? 0.07 : posse ? -0.05 : 0) * fwd;
+    const base = []; for (let k = 1; k < 11; k++) base.push(depth(team, posicaoFormacao(f, k, team, 'jogo').y));
+    const dmin = Math.min(...base), dmax = Math.max(...base);
+    const bd = depth(team, by);
+    let lo, hi;
+    if (posse === team) { lo = bd - 0.40; hi = bd + 0.08; }       // atacando: a bola fica perto da frente do bloco
+    else if (posse) { lo = bd - 0.30; hi = bd + 0.14; }           // defendendo: quase todo mundo atrás da bola
+    else { lo = bd - 0.34; hi = bd + 0.12; }
+    const LO = posse === team ? 0.16 : 0.07, HI = posse === team ? 0.88 : 0.80; // ninguém entra na própria área com a bola, atacante não pressiona dentro da área
+    if (lo < LO) { hi += LO - lo; lo = LO; }
+    if (hi > HI) { lo -= hi - HI; hi = HI; }
     own.forEach((t, i) => {
       if (t.owner) return;
       const slot = t.slot >= 0 && t.slot < 11 ? t.slot : i;
-      let { x, y } = posicaoFormacao(f, slot, team, 'jogo');
+      const p = posicaoFormacao(f, slot, team, 'jogo');
+      let x, y;
       if (slot === 0) { x = 0.5 + (bx - 0.5) * 0.2; y = team === 'home' ? 0.94 : 0.06; }
-      else { y = center + (y - 0.5) * 0.62; x = x + (bx - x) * 0.18; }
+      else {
+        const u = dmax > dmin ? (depth(team, p.y) - dmin) / (dmax - dmin) : 0.5;
+        y = fromDepth(team, lo + u * (hi - lo));
+        x = p.x + (bx - p.x) * 0.15;
+      }
       novo.set(t.id, { x: clamp(x, .04, .96), y: clamp(y, .04, .96) });
     });
   }
@@ -480,8 +496,8 @@ async function autoNPCs(manual) {
     const def = posse === 'home' ? 'away' : 'home';
     const back = def === 'home' ? 1 : -1; // lado do próprio gol de quem defende
     const livres = toks.filter(t => t.team === def && !t.owner && t.slot !== 0);
-    const alvos = toks.filter(t => t.team === posse && (t.owner || t.important || t === holder))
-      .sort((a, b) => (b === holder) - (a === holder));
+    const alvos = toks.filter(t => t.team === posse && (t.owner || t.important || t === holder) && (t === holder || Math.abs(tokenPos(t)[1] - by) < 0.3))
+      .sort((a, b) => (b === holder) - (a === holder)).slice(0, 4);
     const pos = t => novo.get(t.id) || { x: t.x, y: t.y };
     for (const alvo of alvos) {
       if (!livres.length) break;
