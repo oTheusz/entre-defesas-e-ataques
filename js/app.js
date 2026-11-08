@@ -343,7 +343,7 @@ function startDrag(e, kind, id) {
     const d = S.drag; S.drag = null;
     if (!d) return;
     if (!d.moved) {
-      if (kind === 'tok') { S.selected = id; renderTokens(); setTab('token'); }
+      if (kind === 'tok') { S.selected = id; renderTokens(); const pas = passadorPara(id); if (pas) abrirPasse(pas, S.tokens.get(id)); else { fecharPasse(); setTab('token'); } }
       else renderBall();
       return;
     }
@@ -855,24 +855,176 @@ async function removeToken(t) {
 // ================= dados =================
 const d20 = () => 1 + Math.floor(Math.random() * 20);
 
+// ---- declarar passe ----
+function passadorPara(id) {
+  if (!S.match) return null;
+  const st = S.match.state, alvo = S.tokens.get(id), hd = st.ball?.holder && S.tokens.get(st.ball.holder);
+  if (!alvo || !hd || hd.id === alvo.id || hd.team !== alvo.team || !onField(alvo) || !onField(hd)) return null;
+  return isGM() || (hd.owner && hd.owner === S.me.id) ? hd : null;
+}
+function distSeg(px, py, ax, ay, bx, by) { // metros
+  const X = v => v * M_W, Y = v => v * M_H;
+  const [P, Q, A, B, C, D] = [X(px), Y(py), X(ax), Y(ay), X(bx), Y(by)];
+  const dx = C - A, dy = D - B, L = dx * dx + dy * dy || 1;
+  const t = clamp(((P - A) * dx + (Q - B) * dy) / L, 0, 1);
+  return Math.hypot(P - (A + t * dx), Q - (B + t * dy));
+}
+function infoPasse(de, para, entreLinhas) {
+  const [ax, ay] = tokenPos(de), [bx, by] = tokenPos(para);
+  const m = metros(ax, ay, bx, by);
+  const z = zonaDe(de.team, bx, by);
+  const parts = [{ l: z.nome, v: z.cd }];
+  if (m > 30) parts.push({ l: 'mais de 30 m', v: 5 }); else if (m > 15) parts.push({ l: '16 a 30 m', v: 2 });
+  if (para.res?.condicao === 'Inseguro') parts.push({ l: `${tNome(para)} Inseguro`, v: 2 });
+  if (entreLinhas) parts.push({ l: 'entre as linhas', v: 5 });
+  const cd = parts.reduce((a, x) => a + x.v, 0);
+  const inter = [...S.tokens.values()].filter(o => o.team !== de.team && onField(o) && !o.res?.vermelho && distSeg(...tokenPos(o), ax, ay, bx, by) <= 3);
+  return { m, cd, parts, inter, completa: m > 30 };
+}
+function fecharPasse() { const p = $('#pass-pop'); if (p) p.remove(); }
+function abrirPasse(de, para) {
+  fecharPasse();
+  const box = $('.field-box'); const el = document.querySelector(`#tokens [data-id="${para.id}"]`); if (!box || !el) return;
+  const br = box.getBoundingClientRect(), er = el.getBoundingClientRect();
+  let entre = false;
+  const corpo = h('div', { class: 'pp-body' });
+  const desenha = () => {
+    const i = infoPasse(de, para, entre);
+    put(corpo,
+      h('div', { class: 'pp-t' }, `Passe: ${tNome(de)} → ${tNome(para)}`),
+      h('div', {}, h('b', {}, `CD ${i.cd}`), ` · ${Math.round(i.m)} m`, i.completa ? ' · ação completa' : ''),
+      h('div', { class: 'muted' }, i.parts.map(x => `${x.l} ${x === i.parts[0] ? x.v : sign(x.v)}`).join(' · ')),
+      i.inter.length ? h('div', { class: 'pp-warn' }, `Podem interceptar: ${i.inter.map(tNome).join(', ')}`) : null,
+      h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: entre, onchange: e => { entre = e.target.checked; desenha(); } }), h('span', {}, 'entre as linhas (+5)')),
+      h('div', { class: 'grid2' },
+        h('button', { class: 'btn btn-sm btn-dark', onclick: () => declararPasse(de, para, entre, corpo) }, 'Declarar passe'),
+        h('button', { class: 'btn btn-sm', onclick: fecharPasse }, 'Cancelar')));
+  };
+  desenha();
+  const pop = h('div', { id: 'pass-pop', class: 'pass-pop' }, corpo);
+  box.append(pop);
+  const left = clamp(er.left - br.left + er.width / 2 - 130, 4, br.width - 264), top = er.top - br.top - pop.offsetHeight - 10;
+  pop.style.left = left + 'px'; pop.style.top = (top < 4 ? er.bottom - br.top + 10 : top) + 'px';
+}
+async function declararPasse(de, para, entre, corpo) {
+  const i = infoPasse(de, para, entre);
+  const mods = modsFor(de, 'Passe');
+  let base = 0;
+  if (de.owner) base = num(S.players.find(p => p.id === de.owner)?.skills?.['Passe']);
+  else if (isGM()) base = (S.secrets?.levels?.[de.team] ?? 3) + 2;
+  const mode = mods.desv ? 'd' : 'n';
+  const dice = mode === 'n' ? [d20()] : [d20(), d20()];
+  const nat = mode === 'd' ? Math.min(...dice) : dice[0];
+  const bonus = base + mods.total;
+  const data = { dice, nat, mode, bonus, total: nat + bonus, skill: 'Passe', cd: i.cd, mods: [...(base && !de.owner ? [{ l: 'NPC (Nível + 2)', v: base }] : []), ...mods.list] };
+  if (de.owner) data.mods.unshift({ l: 'ficha', v: base });
+  const row = { match_id: S.match.id, kind: 'roll', who: tNome(de), label: `Passe para ${tNome(para)}`, data };
+  try { await S.store.insert('rolls', row); } catch (e) { toast('Não registrou: ' + e.message); }
+  const ok = nat !== 1 && (nat === 20 || data.total >= i.cd);
+  const podeMover = isGM() || (de.owner && de.owner === S.me.id);
+  const darBola = () => { saveState({ ball: { ...S.match.state.ball, holder: para.id } }); fecharPasse(); toast(`Bola com ${tNome(para)}.`); };
+  put(corpo,
+    h('div', { class: 'pp-t' }, `Passe de ${tNome(de)}: ${data.total}`),
+    h('div', {}, `d20 ${dice.length > 1 ? '[' + dice.join(', ') + '] → ' : ''}${nat} ${sign(bonus)} contra CD ${i.cd}`),
+    h('div', {}, h('b', {}, resolve(data))),
+    ok && i.inter.length ? h('div', { class: 'pp-warn' }, `${i.inter.map(tNome).join(', ')} pode(m) tentar interceptar: Antecipação contra ${data.total}.`) : null,
+    ok && !i.inter.length ? h('div', { class: 'muted' }, `Chegou. Domínio do ${tNome(para)}: CD ${zonaDe(para.team, ...tokenPos(para)).cd - 5}.`) : null,
+    h('div', { class: 'grid2' },
+      ok && podeMover ? h('button', { class: 'btn btn-sm btn-dark', onclick: darBola }, i.inter.length ? 'Chegou (ninguém cortou)' : 'Dar a bola') : null,
+      h('button', { class: 'btn btn-sm', onclick: fecharPasse }, 'Fechar')));
+  if (ok && !i.inter.length && podeMover) darBola();
+}
+
+// ---- modificadores automáticos ----
+function zonaDe(team, x, y) { // zona vista por quem ataca (team)
+  const ax = team === 'away' ? 1 - x : x, ay = team === 'away' ? 1 - y : y;
+  const row = ay < 1 / 3 ? 0 : ay < 2 / 3 ? 1 : 2, col = ax < 1 / 3 ? 0 : ax < 2 / 3 ? 1 : 2;
+  return { row, col, cd: ZONAS[row].cds[col], nome: ZONAS[row].nomes[col] };
+}
+const zonaAbs = (x, y) => Math.min(2, Math.floor(y * 3)) * 3 + Math.min(2, Math.floor(x * 3));
+const tNome = t => t ? (t.name || `nº ${t.number}`) : '';
+function marcadorDe(t) {
+  if (!t || !onField(t)) return null;
+  const [tx, ty] = toPx(...tokenPos(t)); const rt = tokR(t);
+  return [...S.tokens.values()].find(o => o.team !== t.team && onField(o) && !o.res?.vermelho && Math.hypot(toPx(...tokenPos(o))[0] - tx, toPx(...tokenPos(o))[1] - ty) <= rt + tokR(o) + 14) || null;
+}
+function modsFor(t, skill) {
+  const list = []; let desv = false;
+  if (!t || !S.match) return { list, total: 0, desv };
+  const st = S.match.state, m = st.momento || 0;
+  const mom = t.team === 'home' ? Math.max(0, m) : Math.max(0, -m);
+  if (mom) list.push({ l: 'Momento do time', v: mom });
+  if (onField(t)) {
+    const mk = marcadorDe(t);
+    if (mk) list.push({ l: `Marcado por ${tNome(mk)}`, v: -2 });
+    const z = zonaAbs(...tokenPos(t));
+    const na = [...S.tokens.values()].filter(o => onField(o) && !o.res?.vermelho && zonaAbs(...tokenPos(o)) === z);
+    const mine = na.filter(o => o.team === t.team).length, theirs = na.length - mine;
+    if (mine > theirs) list.push({ l: `Superioridade na zona (${mine} × ${theirs})`, v: 2 });
+    if (skill === 'Finalização' || skill === 'Chute Forte') {
+      const zn = zonaDe(t.team, ...tokenPos(t));
+      if (zn.row === 0 && zn.col !== 1) list.push({ l: 'Chute da ponta', v: -2 });
+      else if (zn.row > 0) list.push({ l: 'Chute de longe' + (skill === 'Finalização' ? ' (só vale com Chute Forte)' : ''), v: -5 });
+    }
+  }
+  const c = t.res?.condicao;
+  if (c === 'Abalado' && (skill === 'Finalização' || skill === 'Bola Parada')) list.push({ l: 'Abalado', v: -2 });
+  if (c === 'Distraído' && (skill === 'Percepção de Campo' || skill === 'Tática')) list.push({ l: 'Distraído', v: -2 });
+  if ((t.res?.folegoMax || 0) > 0 && (t.res?.folego || 0) <= 0) desv = true;
+  return { list, total: list.reduce((a, x) => a + x.v, 0), desv };
+}
+function meuToken() {
+  if (isGM()) return S.selected ? S.tokens.get(S.selected) : null;
+  return [...S.tokens.values()].find(t => t.owner === S.me.id && onField(t)) || [...S.tokens.values()].find(t => t.owner === S.me.id) || null;
+}
+function cdSugerida(t, skill) {
+  if (!t || !onField(t)) return null;
+  const z = zonaDe(t.team, ...tokenPos(t));
+  if (skill === 'Domínio') return { cd: z.cd - 5, txt: `${z.nome} (${z.cd}) − 5` };
+  return null;
+}
+function modsLinha(base, mods, skill) {
+  const parts = [skill ? `ficha ${sign(base)}` : null, ...mods.list.map(x => `${x.l} ${sign(x.v)}`)].filter(Boolean);
+  const tot = base + mods.total;
+  return h('div', { class: 'mods' }, h('span', { class: 'mods-i', title: parts.join(' · ') || 'sem modificadores' }, 'ⓘ'),
+    h('b', {}, `${skill || 'Bônus'} ${sign(tot)}`), parts.length ? h('span', { class: 'muted' }, ' = ' + parts.join(' · ')) : null,
+    mods.desv ? h('span', { class: 'mods-warn' }, ' · Esgotado: rola com desvantagem') : null);
+}
+
 function renderDados() {
   const box = $('#tab-dados');
   const skills = isGM() ? {} : (S.player?.skills || {});
   const opts = Object.entries(skills).filter(([, v]) => v !== '' && v != null);
+  const tk = meuToken();
+  const info = h('div', { class: 'mods-box' });
+  const cdIn = h('input', { name: 'cd', type: 'number', placeholder: '—' });
+  const atualiza = sk => {
+    const base = sk && !isGM() ? num(skills[sk]) : 0;
+    const mods = modsFor(tk, sk);
+    const sug = cdSugerida(tk, sk);
+    put(info, tk ? modsLinha(base, mods, sk) : h('p', { class: 'muted' }, isGM() ? 'Selecione um token no campo para aplicar os modificadores dele.' : 'Seu token não está em campo.'),
+      sug ? h('div', { class: 'row' }, h('span', { class: 'muted' }, `CD sugerida: ${sug.cd} · ${sug.txt}`), h('button', { type: 'button', class: 'btn btn-sm', onclick: () => { cdIn.value = sug.cd; } }, 'Usar')) : null);
+  };
   const f = h('form', { class: 'sec', onsubmit: e => { e.preventDefault(); rolar(new FormData(e.currentTarget)); } },
     h('div', { class: 'sec-t' }, 'Rolar d20'),
     isGM() ? h('label', {}, 'Quem rola', h('input', { name: 'who', value: S.selected && S.tokens.get(S.selected)?.name || 'Mestre' })) : null,
     h('label', {}, 'Perícia', h('select', { name: 'skill' },
       h('option', { value: '' }, isGM() ? 'Bônus livre' : (opts.length ? 'Sem perícia (só o bônus)' : 'Cadastre suas perícias em "Meu jogador"')),
-      opts.map(([k, v]) => h('option', { value: k }, `${k} (${sign(num(v))})`)))),
+      opts.map(([k, v]) => h('option', { value: k }, `${k} (${sign(num(v) + modsFor(tk, k).total)})`)))),
+    info,
+    h('div', { class: 'temp' },
+      h('label', { class: 'tg' }, h('input', { type: 'checkbox', name: 'tmpDom' }), h('span', {}, '+2 dominou antes')),
+      h('label', { class: 'tg' }, h('input', { type: 'checkbox', name: 'tmpBanco' }), h('span', {}, '+1 entrou do banco')),
+      isGM() ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', name: 'semMods' }), h('span', {}, 'Ignorar modificadores')) : null),
     h('div', { class: 'grid3' },
       h('label', {}, 'Bônus extra', h('input', { name: 'extra', type: 'number', value: 0 })),
-      h('label', {}, 'CD', h('input', { name: 'cd', type: 'number', placeholder: '—' })),
+      h('label', {}, 'CD', cdIn),
       h('label', {}, 'Modo', h('select', { name: 'mode' }, h('option', { value: 'n' }, 'Normal'), h('option', { value: 'v' }, 'Vantagem'), h('option', { value: 'd' }, 'Desvantagem')))),
     h('label', {}, 'Descrição (opcional)', h('input', { name: 'label', maxlength: 60, placeholder: 'ex: drible no lateral' })),
     isGM() ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', name: 'secret' }), h('span', {}, 'Rolagem secreta (só você vê)')) : null,
     h('button', { class: 'btn btn-dark', type: 'submit', disabled: !S.match }, 'Rolar'),
   );
+  const sel = f.querySelector('select[name=skill]'); sel.addEventListener('change', () => atualiza(sel.value)); atualiza(sel.value);
   const last = S.lastRoll ? rollCard(S.lastRoll) : null;
   const log = h('div', { class: 'log' }, S.rolls.length ? S.rolls.map(logItem) : h('div', { class: 'empty' }, 'Nenhuma rolagem ainda.'));
   put(box, f, last, h('div', { class: 'sec' }, h('div', { class: 'sec-t' }, 'Registro da partida'), log));
@@ -894,6 +1046,7 @@ function rollCard(r) {
     h('div', { class: 'muted' }, `${r.who}${r.label ? ' · ' + r.label : ''}${d.secret ? ' · secreta' : ''}`),
     h('div', { class: 'tot' }, d.total),
     h('div', {}, `d20 ${d.dice.length > 1 ? '[' + d.dice.join(', ') + '] → ' : ''}${d.nat} ${sign(d.bonus)}${d.skill ? ' (' + d.skill + ')' : ''}`),
+    d.mods?.length ? h('div', { class: 'muted' }, d.mods.map(x => `${x.l} ${sign(x.v)}`).join(' · ')) : null,
     d.cd != null ? h('div', {}, h('b', {}, resolve(d)), ` contra CD ${d.cd}`) : null,
     d.nat === 20 ? h('div', {}, h('b', {}, '20 natural! Se for Jogada, é Toque Perfeito.')) : null,
   );
@@ -905,20 +1058,26 @@ function logItem(r) {
   return h('div', { class: 'log-item' + (d.nat === 20 ? ' n20' : d.nat === 1 ? ' n1' : '') },
     h('div', { class: 'row', style: 'justify-content:space-between' }, h('span', { class: 'who' }, r.who), h('span', { class: 'big' }, d.total)),
     h('span', { class: 'det' }, [r.label, d.skill, `d20 ${d.dice?.length > 1 ? '[' + d.dice.join(', ') + '] ' : ''}${d.nat} ${sign(d.bonus ?? 0)}`].filter(Boolean).join(' · ')),
+    d.mods?.length ? h('span', { class: 'det' }, d.mods.map(x => `${x.l} ${sign(x.v)}`).join(' · ')) : null,
     d.cd != null ? h('span', { class: 'det' }, `CD ${d.cd}: ${resolve(d)}`) : null,
     h('time', {}, tm));
 }
 
 async function rolar(fd) {
   if (!S.match) return;
-  const mode = fd.get('mode');
+  const skill = fd.get('skill') || '';
+  const mods = fd.get('semMods') ? { list: [], total: 0, desv: false } : modsFor(meuToken(), skill);
+  if (fd.get('tmpDom')) mods.list.push({ l: 'Dominou antes', v: 2 });
+  if (fd.get('tmpBanco')) mods.list.push({ l: 'Entrou do banco', v: 1 });
+  mods.total = mods.list.reduce((a, x) => a + x.v, 0);
+  let mode = fd.get('mode');
+  if (mods.desv) mode = mode === 'v' ? 'n' : 'd';
   const dice = mode === 'n' ? [d20()] : [d20(), d20()];
   const nat = mode === 'v' ? Math.max(...dice) : mode === 'd' ? Math.min(...dice) : dice[0];
-  const skill = fd.get('skill') || '';
   const skBonus = skill && !isGM() ? num(S.player?.skills?.[skill]) : 0;
-  const bonus = skBonus + num(fd.get('extra'));
+  const bonus = skBonus + mods.total + num(fd.get('extra'));
   const cdRaw = fd.get('cd');
-  const data = { dice, nat, mode, bonus, total: nat + bonus, skill, cd: cdRaw === '' || cdRaw == null ? null : num(cdRaw) };
+  const data = { dice, nat, mode, bonus, total: nat + bonus, skill, cd: cdRaw === '' || cdRaw == null ? null : num(cdRaw), mods: mods.list };
   const who = isGM() ? (fd.get('who') || 'Mestre') : S.me.name;
   const row = { match_id: S.match.id, kind: 'roll', who, label: (fd.get('label') || '').slice(0, 60), data };
   if (fd.get('secret')) { data.secret = true; S.lastRoll = { ...row, created_at: new Date().toISOString() }; renderDados(); return; }
