@@ -258,3 +258,9 @@ label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; text-transfo
 .big-turn { width: 100%; font-size: 16px; padding: 12px; margin: 6px 0; }
 .sb-fim { margin-left: 8px; padding: 2px 10px; }
 .ordem-list li.npc-fase { grid-template-columns: 26px 1fr auto; }
+
+/* zoom dos mapas */
+.zoom-tools { display: inline-flex; }
+.zoom-tools .tg-btn { min-width: 34px; font-size: 16px; font-weight: 700; }
+#field.zoomed, #city.zoomed { touch-action: none; cursor: grab; }
+#field.zoomed:active, #city.zoomed:active { cursor: grabbing; }

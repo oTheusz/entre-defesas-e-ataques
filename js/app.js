@@ -56,6 +56,56 @@ const S = {
 const isGM = () => S.role === 'gm';
 const clientId = (() => { let id = lsGet('eda-client', null); if (!id) { id = uid(); lsSet('eda-client', id); } return id; })();
 
+// ================= zoom dos mapas =================
+const ZBASE = { field: { w: 680, h: 1050 }, city: { w: 1000, h: 558 } };
+const ZOOM = { field: { z: 1, cx: 340, cy: 525 }, city: { z: 1, cx: 500, cy: 279 } };
+function curMap() { return S.mode === 'cidade' ? 'city' : 'field'; }
+function applyZoom(id) {
+  const b = ZBASE[id], v = ZOOM[id], svg = document.getElementById(id); if (!svg) return;
+  v.z = clamp(v.z, 1, 5);
+  const w = b.w / v.z, h = b.h / v.z;
+  v.cx = clamp(v.cx, w / 2, b.w - w / 2); v.cy = clamp(v.cy, h / 2, b.h - h / 2);
+  svg.setAttribute('viewBox', `${(v.cx - w / 2).toFixed(1)} ${(v.cy - h / 2).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`);
+  svg.classList.toggle('zoomed', v.z > 1.01);
+  const r = $('#zoom-reset'); if (r) r.classList.toggle('on', v.z > 1.01);
+}
+function zoomAt(id, factor, px, py) {
+  const v = ZOOM[id]; const nz = clamp(v.z * factor, 1, 5);
+  if (px != null) { const k = v.z / nz; v.cx = px + (v.cx - px) * k; v.cy = py + (v.cy - py) * k; }
+  v.z = nz; applyZoom(id);
+}
+function svgPt(svg, e) { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
+function setupZoom(id) {
+  const svg = document.getElementById(id); if (!svg || svg.dataset.zoom) return; svg.dataset.zoom = '1';
+  svg.addEventListener('wheel', e => { e.preventDefault(); const p = svgPt(svg, e); zoomAt(id, e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, { passive: false });
+  const ptrs = new Map(); let pan = null, pinch = null;
+  svg.addEventListener('pointerdown', e => {
+    if (e.target.closest('.tok, #ball, .loc, .ord-in') || (id === 'field' && S.arrowMode)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), z: ZOOM[id].z }; pan = null;
+    } else if (ZOOM[id].z > 1.01) pan = { x: e.clientX, y: e.clientY, cx: ZOOM[id].cx, cy: ZOOM[id].cy, moved: false };
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = svgPt(svg, { clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+      zoomAt(id, (pinch.z * d / pinch.d) / ZOOM[id].z, mid.x, mid.y); return;
+    }
+    if (pan) {
+      const rect = svg.getBoundingClientRect(); const v = ZOOM[id], b = ZBASE[id];
+      const k = Math.max((b.w / v.z) / rect.width, (b.h / v.z) / rect.height);
+      if (Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4) pan.moved = true;
+      v.cx = pan.cx - (e.clientX - pan.x) * k; v.cy = pan.cy - (e.clientY - pan.y) * k; applyZoom(id);
+    }
+  });
+  const end = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { if (pan?.moved) svg.dataset.panned = '1'; pan = null; setTimeout(() => delete svg.dataset.panned, 0); } };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+}
+
 // ================= campo =================
 const FX = 20, FY = 20, FW = 640, FH = 1010;
 const toPx = (x, y) => {
@@ -97,7 +147,7 @@ function drawPitch() {
   svg.addEventListener('pointerdown', e => {
     if (e.target.closest('.tok') || e.target.closest('#ball')) return;
     if (S.arrowMode && S.match) { startArrow(e); return; }
-    if (S.selected) { S.selected = null; renderTokens(); renderTab(); }
+    if (S.selected && ZOOM.field.z <= 1.01) { S.selected = null; renderTokens(); renderTab(); }
   });
 }
 
@@ -1341,6 +1391,10 @@ async function enterRoom(code, role, name, pass) {
   document.querySelector('[data-tab="mestre"]').hidden = !isGM();
   document.querySelector('[data-tab="eu"]').hidden = isGM();
   drawPitch(); renderGrid(); drawCity();
+  setupZoom('field'); setupZoom('city');
+  $('#zoom-in').addEventListener('click', () => zoomAt(curMap(), 1.4));
+  $('#zoom-out').addEventListener('click', () => zoomAt(curMap(), 1 / 1.4));
+  $('#zoom-reset').addEventListener('click', () => { const v = ZOOM[curMap()]; v.z = 1; applyZoom(curMap()); });
   setMode(room.view === 'cidade' ? 'cidade' : 'campo', false);
 
   if (!S.matches.length && isGM()) { await novaPartida('Partida 1'); return; }
