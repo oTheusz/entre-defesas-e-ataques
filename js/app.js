@@ -389,12 +389,12 @@ function ordemSec(st, gm) {
   return h('div', { class: 'sec ordem' },
     h('div', { class: 'sec-t' }, `Ordem do bloco ${st.bloco}`, h('span', { class: 'muted' }, 'd20 + Percepção de Campo')),
     o ? h('ol', { class: 'ordem-list' }, lista.map((x, i) => h('li', { class: (x.feito ? 'feito' : '') + (x === vez ? ' vez' : '') },
-      h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name),
+      h('span', { class: 'pos' }, i + 1), h('span', { class: 'nm' }, x.name, x.npc ? h('em', { class: 'npc-tag' }, ` NPC · ${x.team}`) : null),
       gm ? h('input', { type: 'number', class: 'ord-in', value: x.total ?? '', placeholder: '—', 'aria-label': `Resultado de ${x.name}`, onchange: e => notaOrdem(i, e.target.value) })
         : h('span', { class: 'tot' }, x.total ?? '—'),
       h('span', {}),
       gm ? h('label', { class: 'tg' }, h('input', { type: 'checkbox', checked: !!x.feito, onchange: e => marcarOrdem(i, e.target.checked) }), h('span', {}, 'feito')) : (x.feito ? h('span', { class: 'muted' }, 'feito') : h('span', {})))))
-      : h('p', { class: 'muted' }, gm ? 'No começo do bloco, depois do Duelo, cada jogador rola Percepção de Campo na aba Dados. Clique em "Montar ordem" e digite os resultados.' : 'Role Percepção de Campo na aba Dados quando o mestre pedir.'),
+      : h('p', { class: 'muted' }, gm ? 'No começo do bloco, depois do Duelo, cada jogador rola Percepção de Campo na aba Dados (os Destaques NPC você rola). Clique em "Montar ordem" e digite os resultados.' : 'Role Percepção de Campo na aba Dados quando o mestre pedir.'),
     o && vez ? h('p', { class: 'vez-txt' }, `Lance-chave agora: `, h('b', {}, vez.name)) : null,
     o && lista.length && lista.every(x => x.feito) ? h('p', { class: 'muted' }, 'Todo mundo já teve o seu lance. Hora da resolução rápida.') : null,
     gm ? h('button', { class: 'btn btn-sm btn-dark', onclick: montarOrdem }, o ? 'Montar de novo' : 'Montar ordem') : null,
@@ -405,8 +405,12 @@ async function montarOrdem() {
   const st = S.match.state;
   const donos = new Set([...S.tokens.values()].filter(t => t.owner && !t.res?.vermelho).map(t => t.owner));
   const ps = S.players.filter(p => donos.has(p.id));
-  if (!ps.length) { toast('Nenhum jogador com token nesta partida.'); return; }
   const lista = ps.map(p => ({ id: p.id, name: p.name, total: null, feito: false }));
+  // Destaques (tokens principais sem dono, em campo) também entram
+  for (const t of S.tokens.values()) {
+    if (t.important && !t.owner && onField(t) && !t.res?.vermelho && t.name) lista.push({ id: 'tok:' + t.id, name: t.name, npc: true, team: st[t.team]?.name || '', total: null, feito: false });
+  }
+  if (!lista.length) { toast('Ninguém em campo pra entrar na ordem.'); return; }
   await saveState({ ordem: { bloco: st.bloco, lista } }); renderTab();
 }
 async function notaOrdem(i, v) {
